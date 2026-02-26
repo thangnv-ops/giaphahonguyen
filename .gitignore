@@ -14,7 +14,7 @@ build/
 .env
 .env.local
 .env.*.local
-
+*.env
 # IDE
 .idea/
 .vscode/
@@ -45,3 +45,5 @@ docs/data/
 
 # Claude Code local settings (may contain secrets)
 .claude/
+
+*.venv

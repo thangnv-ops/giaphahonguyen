@@ -26,7 +26,7 @@ const fetchWithTimeout: typeof fetch = async (input, init) => {
 // Safe for single-tab apps where concurrent token refreshes are rare.
 const noopLock = async <T>(_name: string, _timeout: number, fn: () => Promise<T>): Promise<T> => fn();
 
-// Browser client uses cookies (shared with middleware)
+// Browser client uses cookies (shared with proxy)
 // Falls back to basic client during build when env vars are missing
 const supabase = supabaseUrl && supabaseAnonKey
   ? createBrowserClient(supabaseUrl, supabaseAnonKey, {

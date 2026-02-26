@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signIn } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState('');
@@ -24,7 +25,11 @@ export default function LoginPage() {
     try {
       await signIn(email, password);
       toast.success('Đăng nhập thành công!');
-      router.push('/');
+      const redirect = searchParams.get('redirect');
+      const safeRedirect = redirect && redirect.startsWith('/') && !redirect.startsWith('//')
+        ? redirect
+        : '/';
+      router.replace(safeRedirect);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Đăng nhập thất bại';
       toast.error(message);

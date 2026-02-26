@@ -1,7 +1,7 @@
 /**
  * @project AncestorTree
- * @file src/middleware.ts
- * @description Auth middleware for protected routes — Next.js 16 convention
+ * @file src/proxy.ts
+ * @description Auth proxy for protected routes — Next.js 16 convention
  * @version 1.2.0
  * @updated 2026-02-26
  */
@@ -19,6 +19,12 @@ const authRequiredPaths = [
   '/achievements', '/charter', '/cau-duong', '/contributions',
   '/documents', '/fund', '/admin',
 ];
+const shouldLogSupabase = process.env.SUPABASE_DEBUG_LOG === '1';
+
+function logSupabase(event: string, data: Record<string, unknown>) {
+  if (!shouldLogSupabase) return;
+  console.log(`[supabase][${event}]`, data);
+}
 
 function isProtectedPath(pathname: string): boolean {
   return authRequiredPaths.some((path) => {
@@ -29,7 +35,7 @@ function isProtectedPath(pathname: string): boolean {
   });
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   let response = NextResponse.next({
@@ -63,14 +69,24 @@ export async function middleware(request: NextRequest) {
   // Race with a 5-second timeout: on timeout treat user as unauthenticated
   // so public pages always load, and protected pages redirect to /login.
   let user: { id: string } | null = null;
+  const authStartMs = Date.now();
   try {
     const result = await Promise.race([
       supabase.auth.getUser().then(r => r.data.user),
       new Promise<null>(resolve => setTimeout(() => resolve(null), 5000)),
     ]);
     user = result;
+    logSupabase('auth.getUser.ok', {
+      path: pathname,
+      hasUser: Boolean(user),
+      durationMs: Date.now() - authStartMs,
+    });
   } catch {
     user = null;
+    logSupabase('auth.getUser.error', {
+      path: pathname,
+      durationMs: Date.now() - authStartMs,
+    });
   }
 
   // Redirect unauthenticated users from protected pages
@@ -82,6 +98,7 @@ export async function middleware(request: NextRequest) {
 
   // Admin routes require admin or editor role
   if (user && pathname.startsWith('/admin')) {
+    const profileStartMs = Date.now();
     try {
       const { data: profile } = await supabase
         .from('profiles')
@@ -89,10 +106,20 @@ export async function middleware(request: NextRequest) {
         .eq('user_id', user.id)
         .single();
 
+      logSupabase('db.profiles.select.ok', {
+        path: pathname,
+        role: profile?.role ?? null,
+        durationMs: Date.now() - profileStartMs,
+      });
+
       if (profile?.role !== 'admin' && profile?.role !== 'editor') {
         return NextResponse.redirect(new URL('/', request.url));
       }
     } catch {
+      logSupabase('db.profiles.select.error', {
+        path: pathname,
+        durationMs: Date.now() - profileStartMs,
+      });
       // On timeout/error, deny access to admin
       return NextResponse.redirect(new URL('/', request.url));
     }

@@ -71,7 +71,7 @@ pnpm dev
 
 Open [http://localhost:4000](http://localhost:4000)
 
-Demo login: `admin@giapha.local` / `admin123`
+Demo login (chỉ cho Supabase local qua `pnpm local:setup`): `admin@giapha.local` / `admin123`
 
 See [docs/04-build/LOCAL-DEVELOPMENT.md](./docs/04-build/LOCAL-DEVELOPMENT.md) for full guide.
 
@@ -88,6 +88,40 @@ pnpm dev
 ```
 
 Open [http://localhost:4000](http://localhost:4000)
+
+Cloud mode không có sẵn demo account. Sau khi đăng ký user đầu tiên, cấp quyền admin bằng SQL:
+
+```sql
+UPDATE public.profiles
+SET role = 'admin'
+WHERE email = 'your-admin@example.com';
+```
+
+### Option C: Push schema bằng Python (không cần pnpm)
+
+```bash
+cd AncestorTree/frontend
+python3 scripts/push_supabase.py --bootstrap
+```
+
+Tạo file `.env` (theo mẫu `psycopg2 + dotenv`):
+
+```env
+user=postgres.<project-ref>
+password=<db_password>
+host=<pooler_host>
+port=6543
+dbname=postgres
+sslmode=require
+```
+
+Hoặc bạn vẫn có thể dùng `SUPABASE_DB_URL` như cũ.
+
+Nếu muốn chạy seed (thường chỉ dùng local/dev):
+
+```bash
+python3 scripts/push_supabase.py --with-seed
+```
 
 ## Project Structure
 
