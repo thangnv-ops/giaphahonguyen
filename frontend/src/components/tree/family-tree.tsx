@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useMemo, useState, useRef, useCallback } from 'react';
+import { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTreeData } from '@/hooks/use-families';
 import { Card, CardContent } from '@/components/ui/card';
@@ -41,16 +41,43 @@ import {
 } from 'lucide-react';
 import type { Person } from '@/types';
 import type { TreeData } from '@/lib/supabase-data';
+import {
+  exportTreeToPdf,
+  exportFullGiaPha,
+  getExportWarning,
+  DEFAULT_FULL_OPTIONS,
+  type FullGiaPhaOptions,
+} from '@/lib/pdf-export';
+import {
+  exportFullGiaPhaWord,
+  DEFAULT_FULL_WORD_OPTIONS,
+  type FullGiaPhaWordOptions,
+} from '@/lib/word-export';
+import { useClanSettings } from '@/hooks/use-clan-settings';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
 import Link from 'next/link';
+import { FileDown, BookText, Loader2, FileText } from 'lucide-react';
+import { toast } from 'sonner';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Constants
 // ═══════════════════════════════════════════════════════════════════════════
 
-const NODE_WIDTH = 120;
-const NODE_HEIGHT = 80;
-const LEVEL_HEIGHT = 140;
+const NODE_WIDTH = 160;
+const NODE_HEIGHT = 100;
+const LEVEL_HEIGHT = 165;
 const SIBLING_GAP = 20;
+const BRANCH_GAP = 60; // wider gap between siblings whose subtrees have children
 const MINIMAP_WIDTH = 160;
 const MINIMAP_HEIGHT = 100;
 
@@ -90,62 +117,133 @@ interface TreeNodeProps {
   isSelected: boolean;
 }
 
+/** Split a Vietnamese full name into at most 2 SVG text lines */
+function wrapName(name: string, charsPerLine = 18): [string, string | null] {
+  const words = name.split(' ');
+  let line1 = '';
+  let i = 0;
+  for (; i < words.length; i++) {
+    const next = line1 ? `${line1} ${words[i]}` : words[i];
+    if (next.length > charsPerLine && line1) break;
+    line1 = next;
+  }
+  if (i >= words.length) return [line1, null];
+  const remaining = words.slice(i).join(' ');
+  const line2 = remaining.length > charsPerLine
+    ? remaining.substring(0, charsPerLine - 1) + '\u2026'
+    : remaining;
+  return [line1, line2];
+}
+
 function TreeNode({ node, onSelect, onToggleCollapse, isSelected }: TreeNodeProps) {
   const { person, x, y, isCollapsed, hasChildren } = node;
-  
-  const initials = person.display_name
-    .split(' ')
-    .map((n) => n[0])
-    .slice(-2)
-    .join('')
-    .toUpperCase();
 
-  const genderColor = person.gender === 1 ? 'border-blue-400' : 'border-pink-400';
-  const selectedRing = isSelected ? 'ring-2 ring-primary ring-offset-2' : '';
+  // Pure SVG — no foreignObject, so html2canvas / PDF serialisation works correctly
+  const isMale = person.gender === 1;
+  // Hardcoded hex colours (not CSS vars) so they survive SVG serialisation for PDF
+  const nodeBg      = isMale ? '#eff6ff' : '#fff1f2';   // blue-50 / rose-50
+  const nodeBorder  = isSelected ? '#6366f1' : (isMale ? '#93c5fd' : '#fda4af'); // indigo / blue-300 / rose-300
+  const borderWidth = isSelected ? 2.5 : 1.5;
+  const avatarBg    = isMale ? '#bfdbfe' : '#fecdd3';   // blue-200 / rose-200
+  const textFill    = '#1f2937';  // gray-800
+  const mutedFill   = '#6b7280';  // gray-500
+  const btnBorder   = isMale ? '#93c5fd' : '#fda4af';
+
+  // Last word initial for avatar
+  const words = person.display_name.trim().split(' ');
+  const initial = (words[words.length - 1]?.[0] ?? '?').toUpperCase();
+
+  // Name wrapping
+  const [line1, line2] = wrapName(person.display_name);
+  const cx = x + NODE_WIDTH / 2;
+
+  // Vertical layout within the node
+  const avatarCY  = y + 24;
+  const avatarR   = 13;
+  const nameLine1Y = line2 ? y + 50 : y + 56; // shift down a bit when 1-line name
+  const nameLine2Y = y + 65;
+  const deadY      = y + NODE_HEIGHT - 9;
+
+  // Collapse button (centre at bottom edge of node)
+  const btnCY = y + NODE_HEIGHT;
+  const btnR  = 9;
+
+  const FONT = "system-ui, -apple-system, 'Segoe UI', sans-serif";
 
   return (
     <motion.g
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.8 }}
-      transition={{ duration: 0.3 }}
+      style={{ transformOrigin: `${cx}px ${y + NODE_HEIGHT / 2}px` }}
+      transition={{ duration: 0.25 }}
     >
-      <foreignObject x={x} y={y} width={NODE_WIDTH} height={NODE_HEIGHT}>
-        <div
-          className={`h-full bg-card border-2 ${genderColor} ${selectedRing} rounded-lg shadow-sm cursor-pointer hover:shadow-md transition-all p-2 flex flex-col items-center justify-center relative`}
-          onClick={() => onSelect(person)}
-        >
-          <Avatar className="h-8 w-8 mb-1">
-            <AvatarImage src={person.avatar_url} />
-            <AvatarFallback className="text-xs">
-              {initials || <User className="h-3 w-3" />}
-            </AvatarFallback>
-          </Avatar>
-          <span className="text-xs font-medium text-center line-clamp-2 leading-tight">
-            {person.display_name}
-          </span>
-          {!person.is_living && (
-            <span className="text-[10px] text-muted-foreground">†</span>
-          )}
-          
-          {/* Collapse/Expand button */}
-          {hasChildren && (
-            <button
-              className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-background border rounded-full flex items-center justify-center shadow-sm hover:bg-muted transition-colors z-10"
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleCollapse(person.id);
-              }}
-            >
-              {isCollapsed ? (
-                <ChevronRight className="h-3 w-3" />
-              ) : (
-                <ChevronDown className="h-3 w-3" />
-              )}
-            </button>
-          )}
-        </div>
-      </foreignObject>
+      {/* Card background */}
+      <rect
+        x={x} y={y} width={NODE_WIDTH} height={NODE_HEIGHT}
+        rx={8} fill={nodeBg} stroke={nodeBorder} strokeWidth={borderWidth}
+        style={{ cursor: 'pointer' }}
+        onClick={() => onSelect(person)}
+      />
+
+      {/* Avatar circle */}
+      <circle cx={cx} cy={avatarCY} r={avatarR} fill={avatarBg}
+        style={{ cursor: 'pointer' }} onClick={() => onSelect(person)} />
+      <text x={cx} y={avatarCY + 5} textAnchor="middle"
+        fontSize={13} fontWeight="700" fill={textFill} fontFamily={FONT}
+        style={{ cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => onSelect(person)}>
+        {initial}
+      </text>
+
+      {/* Name line 1 */}
+      <text x={cx} y={nameLine1Y} textAnchor="middle"
+        fontSize={11} fontWeight="500" fill={textFill} fontFamily={FONT}
+        style={{ cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => onSelect(person)}>
+        {line1}
+      </text>
+
+      {/* Name line 2 (if any) */}
+      {line2 && (
+        <text x={cx} y={nameLine2Y} textAnchor="middle"
+          fontSize={11} fontWeight="500" fill={textFill} fontFamily={FONT}
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => onSelect(person)}>
+          {line2}
+        </text>
+      )}
+
+      {/* Death indicator */}
+      {!person.is_living && (
+        <text x={cx} y={deadY} textAnchor="middle"
+          fontSize={9} fill={mutedFill} fontFamily={FONT}
+          style={{ cursor: 'pointer', userSelect: 'none' }}
+          onClick={() => onSelect(person)}>
+          {`\u2020 ${person.death_year ?? ''}`}
+        </text>
+      )}
+
+      {/* Selected dashed ring */}
+      {isSelected && (
+        <rect x={x - 3} y={y - 3} width={NODE_WIDTH + 6} height={NODE_HEIGHT + 6}
+          rx={11} fill="none" stroke="#6366f1" strokeWidth={1.5}
+          strokeDasharray="5 3" opacity={0.6} style={{ pointerEvents: 'none' }} />
+      )}
+
+      {/* Collapse / expand button */}
+      {hasChildren && (
+        <g style={{ cursor: 'pointer' }}
+          onClick={(e) => { e.stopPropagation(); onToggleCollapse(person.id); }}>
+          <circle cx={cx} cy={btnCY} r={btnR}
+            fill="white" stroke={btnBorder} strokeWidth={1.5} />
+          <text x={cx} y={btnCY + 5} textAnchor="middle"
+            fontSize={14} fontWeight="bold" fill={mutedFill} fontFamily={FONT}
+            style={{ userSelect: 'none' }}>
+            {isCollapsed ? '+' : '\u2212'}
+          </text>
+        </g>
+      )}
     </motion.g>
   );
 }
@@ -161,36 +259,20 @@ interface TreeConnectionProps {
 function TreeConnection({ connection }: TreeConnectionProps) {
   const { x1, y1, x2, y2, type } = connection;
 
+  // Use hardcoded hex colours (not CSS vars / currentColor) so PDF serialisation works
   if (type === 'couple') {
     return (
-      <motion.line
-        initial={{ pathLength: 0 }}
-        animate={{ pathLength: 1 }}
-        transition={{ duration: 0.5 }}
-        x1={x1}
-        y1={y1}
-        x2={x2}
-        y2={y2}
-        stroke="currentColor"
-        strokeWidth={2}
-        className="text-pink-400"
-      />
+      <line x1={x1} y1={y1} x2={x2} y2={y2}
+        stroke="#f472b6" strokeWidth={2} /> // pink-400
     );
   }
 
-  // Parent-child: draw stepped line
+  // Parent-child: stepped path
   const midY = y1 + (y2 - y1) / 2;
   return (
-    <motion.path
-      initial={{ pathLength: 0 }}
-      animate={{ pathLength: 1 }}
-      transition={{ duration: 0.5 }}
+    <path
       d={`M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.5}
-      className="text-muted-foreground"
-    />
+      fill="none" stroke="#9ca3af" strokeWidth={1.5} /> // gray-400
   );
 }
 
@@ -221,7 +303,7 @@ function Minimap({ nodes, viewBox, treeWidth, treeHeight, onViewportClick }: Min
   const visibleNodes = nodes.filter(n => n.isVisible);
 
   return (
-    <div className="absolute bottom-4 right-4 bg-background/90 border rounded-lg p-2 shadow-lg">
+    <div className="absolute bottom-4 right-4 bg-background/90 border rounded-lg p-2 shadow-lg" data-html2canvas-ignore="true">
       <svg
         width={MINIMAP_WIDTH}
         height={MINIMAP_HEIGHT}
@@ -376,19 +458,23 @@ function buildTreeLayout(
     const result: string[] = [];
     for (const fam of fams) {
       children
-        .filter((c) => c.family_id === fam.id && visibleIds.has(c.person_id))
+        .filter((c) => c.family_id === fam.id && visibleIds.has(c.person_id) && !positionedAsWife.has(c.person_id))
         .sort((a, b) => a.sort_order - b.sort_order)
         .forEach((c) => { if (!result.includes(c.person_id)) result.push(c.person_id); });
     }
     return result;
   };
 
-  const getVisibleWife = (personId: string): string | null => {
+  /** Returns all visible wives for a husband (supports polygamy). */
+  const getVisibleWives = (personId: string): string[] => {
     const fams = fatherToFamilies.get(personId) || [];
+    const wives: string[] = [];
     for (const fam of fams) {
-      if (fam.mother_id && visibleIds.has(fam.mother_id)) return fam.mother_id;
+      if (fam.mother_id && visibleIds.has(fam.mother_id)) {
+        wives.push(fam.mother_id);
+      }
     }
-    return null;
+    return wives;
   };
 
   // Wives will be positioned adjacent to husband — mark them
@@ -412,16 +498,29 @@ function buildTreeLayout(
     }
   }
 
+  // Gap between adjacent siblings — larger when at least one has a visible subtree
+  const siblingGap = (childA: string, childB: string): number => {
+    const aHasKids = !collapsedNodes.has(childA) && getVisibleChildrenAsFather(childA).length > 0;
+    const bHasKids = !collapsedNodes.has(childB) && getVisibleChildrenAsFather(childB).length > 0;
+    return (aHasKids || bHasKids) ? BRANCH_GAP : SIBLING_GAP;
+  };
+
   // Bottom-up: subtree widths
   const subtreeWidths = new Map<string, number>();
   const computeSubtreeWidth = (personId: string): number => {
     if (subtreeWidths.has(personId)) return subtreeWidths.get(personId)!;
-    const wife = getVisibleWife(personId);
+    const wives = getVisibleWives(personId);
     const visChildren = collapsedNodes.has(personId) ? [] : getVisibleChildrenAsFather(personId);
-    const coupleWidth = NODE_WIDTH + (wife ? COUPLE_GAP + NODE_WIDTH : 0);
-    const childrenWidth = visChildren.length > 0
-      ? visChildren.reduce((s, c) => s + computeSubtreeWidth(c), 0) + (visChildren.length - 1) * SIBLING_GAP
-      : 0;
+    const coupleWidth = NODE_WIDTH + wives.length * (COUPLE_GAP + NODE_WIDTH);
+    let childrenWidth = 0;
+    if (visChildren.length > 0) {
+      for (let i = 0; i < visChildren.length; i++) {
+        childrenWidth += computeSubtreeWidth(visChildren[i]);
+        if (i < visChildren.length - 1) {
+          childrenWidth += siblingGap(visChildren[i], visChildren[i + 1]);
+        }
+      }
+    }
     const result = Math.max(coupleWidth, childrenWidth);
     subtreeWidths.set(personId, result);
     return result;
@@ -432,24 +531,36 @@ function buildTreeLayout(
   const xPositions = new Map<string, number>();
   const assignPositions = (personId: string, startX: number) => {
     const sw = subtreeWidths.get(personId) || NODE_WIDTH;
-    const wife = getVisibleWife(personId);
+    const wives = getVisibleWives(personId);
     const visChildren = collapsedNodes.has(personId) ? [] : getVisibleChildrenAsFather(personId);
-    const coupleWidth = NODE_WIDTH + (wife ? COUPLE_GAP + NODE_WIDTH : 0);
+    const coupleWidth = NODE_WIDTH + wives.length * (COUPLE_GAP + NODE_WIDTH);
     const centerX = startX + sw / 2;
 
-    // Center couple unit
+    // Center couple unit — position husband then each wife to the right
     const fatherX = centerX - coupleWidth / 2;
     xPositions.set(personId, fatherX);
-    if (wife) xPositions.set(wife, fatherX + NODE_WIDTH + COUPLE_GAP);
+    let nextWifeX = fatherX + NODE_WIDTH + COUPLE_GAP;
+    for (const wifeId of wives) {
+      xPositions.set(wifeId, nextWifeX);
+      nextWifeX += NODE_WIDTH + COUPLE_GAP;
+    }
 
     // Children spread centered under couple
     if (visChildren.length > 0) {
-      const totalChildW = visChildren.reduce((s, c) => s + (subtreeWidths.get(c) || NODE_WIDTH), 0)
-        + (visChildren.length - 1) * SIBLING_GAP;
+      let totalChildW = 0;
+      for (let i = 0; i < visChildren.length; i++) {
+        totalChildW += (subtreeWidths.get(visChildren[i]) || NODE_WIDTH);
+        if (i < visChildren.length - 1) {
+          totalChildW += siblingGap(visChildren[i], visChildren[i + 1]);
+        }
+      }
       let childX = centerX - totalChildW / 2;
-      for (const child of visChildren) {
-        assignPositions(child, childX);
-        childX += (subtreeWidths.get(child) || NODE_WIDTH) + SIBLING_GAP;
+      for (let i = 0; i < visChildren.length; i++) {
+        assignPositions(visChildren[i], childX);
+        childX += (subtreeWidths.get(visChildren[i]) || NODE_WIDTH);
+        if (i < visChildren.length - 1) {
+          childX += siblingGap(visChildren[i], visChildren[i + 1]);
+        }
       }
     }
   };
@@ -483,11 +594,13 @@ function buildTreeLayout(
     const motherPos = family.mother_id ? personPos.get(family.mother_id) : null;
     if (!fatherPos && !motherPos) continue;
 
-    // Couple line (horizontal, between nodes)
+    // Couple line (horizontal, between adjacent nodes in the couple chain).
+    // For polygamy, subsequent wives are positioned further right, so each
+    // couple line covers only the COUPLE_GAP immediately to the left of the wife.
     if (fatherPos && motherPos) {
       connections.push({
         id: `couple-${family.id}`,
-        x1: fatherPos.x + NODE_WIDTH,
+        x1: motherPos.x - COUPLE_GAP,
         y1: fatherPos.y + NODE_HEIGHT / 2,
         x2: motherPos.x,
         y2: motherPos.y + NODE_HEIGHT / 2,
@@ -568,6 +681,33 @@ export function FamilyTree() {
   const [filterSearch, setFilterSearch] = useState('');
   const [filterDropdownOpen, setFilterDropdownOpen] = useState(false);
 
+  // Auto-collapse: for large trees (>50 people), collapse gen 3+ on first load
+  const autoCollapseApplied = useRef(false);
+  useEffect(() => {
+    if (!data || autoCollapseApplied.current) return;
+    if (data.people.length <= 50) return;
+    autoCollapseApplied.current = true;
+
+    const minGen = Math.min(...data.people.map(p => p.generation || 1));
+    const collapseFromGen = minGen + 4; // show first 4 generations, collapse gen 5+ (relative)
+
+    const fathersWithChildren = new Set<string>();
+    for (const family of data.families) {
+      if (family.father_id && data.children.some(c => c.family_id === family.id)) {
+        fathersWithChildren.add(family.father_id);
+      }
+    }
+
+    const toCollapse = new Set<string>();
+    for (const person of data.people) {
+      if (person.generation >= collapseFromGen && fathersWithChildren.has(person.id)) {
+        toCollapse.add(person.id);
+      }
+    }
+
+    if (toCollapse.size > 0) setCollapsedNodes(toCollapse);
+  }, [data]);
+
   const handleSetFilterRoot = useCallback((person: Person | null) => {
     setFilterRootId(person?.id ?? null);
     setFilterSearch('');
@@ -584,8 +724,17 @@ export function FamilyTree() {
     ? data?.people.find((p) => p.id === filterRootId) ?? null
     : null;
 
+  const { data: clanSettings } = useClanSettings();
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingFull, setIsExportingFull] = useState(false);
+  const [isExportingWord, setIsExportingWord] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [showWordDialog, setShowWordDialog] = useState(false);
+  const [exportOptions, setExportOptions] = useState<FullGiaPhaOptions>(DEFAULT_FULL_OPTIONS);
+  const [wordExportOptions, setWordExportOptions] =
+    useState<FullGiaPhaWordOptions>(DEFAULT_FULL_WORD_OPTIONS);
 
   // Track container size via ResizeObserver (avoids reading refs during render)
   const containerCallbackRef = useCallback((node: HTMLDivElement | null) => {
@@ -608,6 +757,87 @@ export function FamilyTree() {
     return buildTreeLayout(data, collapsedNodes, viewMode, selectedPerson?.id || null, filterRootId);
   }, [data, collapsedNodes, viewMode, selectedPerson?.id, filterRootId]);
 
+  // PDF export handler
+  const handleExportPdf = useCallback(async () => {
+    if (!containerRef.current || !layout) return;
+
+    const warning = getExportWarning(layout.nodes.length);
+    if (warning && layout.nodes.length > 100) {
+      toast.warning(warning);
+      return;
+    }
+    if (warning) toast.info(warning);
+
+    setIsExportingPdf(true);
+    try {
+      await exportTreeToPdf(containerRef.current, layout.width, layout.height, layout.offsetX, {
+        pageSize: layout.nodes.length > 30 ? 'a2' : 'a3',
+      });
+      toast.success('Xuất PDF thành công');
+    } catch (err) {
+      console.error('[PDF export]', err);
+      toast.error('Lỗi khi xuất PDF. Vui lòng thử lại.');
+    } finally {
+      setIsExportingPdf(false);
+    }
+  }, [layout]);
+
+  // Full genealogy WORD export — actual export after dialog confirm
+  const handleExportFullGiaPhaWord = useCallback(async () => {
+    if (!containerRef.current || !layout || !data) return;
+    setShowWordDialog(false);
+
+    const warning = getExportWarning(layout.nodes.length);
+    if (warning && layout.nodes.length > 100) {
+      toast.warning(warning);
+      return;
+    }
+    if (warning) toast.info(warning);
+
+    setIsExportingWord(true);
+    try {
+      await exportFullGiaPhaWord(
+        containerRef.current,
+        layout.width,
+        layout.height,
+        layout.offsetX,
+        data,
+        clanSettings ?? null,
+        wordExportOptions,
+      );
+      toast.success('Xuất Gia Phả Word thành công');
+    } catch (err) {
+      console.error('[Word export]', err);
+      toast.error('Lỗi khi xuất Gia Phả Word. Vui lòng thử lại.');
+    } finally {
+      setIsExportingWord(false);
+    }
+  }, [layout, data, clanSettings, wordExportOptions]);
+
+  // Full genealogy PDF export — actual export after dialog confirm
+  const handleExportFullGiaPha = useCallback(async () => {
+    if (!containerRef.current || !layout || !data) return;
+    setShowExportDialog(false);
+    setIsExportingFull(true);
+    try {
+      await exportFullGiaPha(
+        containerRef.current,
+        layout.width,
+        layout.height,
+        layout.offsetX,
+        data,
+        clanSettings ?? null,
+        exportOptions,
+      );
+      toast.success('Xuất Gia Phả PDF thành công');
+    } catch (err) {
+      console.error('[Full PDF export]', err);
+      toast.error('Lỗi khi xuất Gia Phả PDF. Vui lòng thử lại.');
+    } finally {
+      setIsExportingFull(false);
+    }
+  }, [layout, data, clanSettings, exportOptions]);
+
   // Handlers
   const handleZoomIn = () => setScale((s) => Math.min(s + 0.1, 2));
   const handleZoomOut = () => setScale((s) => Math.max(s - 0.1, 0.3));
@@ -627,6 +857,28 @@ export function FamilyTree() {
       return next;
     });
   }, []);
+
+  const handleExpandAll = useCallback(() => {
+    setCollapsedNodes(new Set());
+  }, []);
+
+  const handleCollapseAll = useCallback(() => {
+    if (!data) return;
+    const minGen = Math.min(...data.people.map(p => p.generation || 1));
+    const fathersWithChildren = new Set<string>();
+    for (const family of data.families) {
+      if (family.father_id && data.children.some(c => c.family_id === family.id)) {
+        fathersWithChildren.add(family.father_id);
+      }
+    }
+    const toCollapse = new Set<string>();
+    for (const person of data.people) {
+      if (person.generation > minGen && fathersWithChildren.has(person.id)) {
+        toCollapse.add(person.id);
+      }
+    }
+    setCollapsedNodes(toCollapse);
+  }, [data]);
 
   // Pan handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -862,6 +1114,18 @@ export function FamilyTree() {
           </SelectContent>
         </Select>
 
+        {/* Expand / Collapse all */}
+        <div className="flex items-center gap-1 border rounded-lg p-1">
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={handleExpandAll}>
+            <ChevronDown className="h-3 w-3 mr-1" />
+            Mở rộng
+          </Button>
+          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={handleCollapseAll}>
+            <ChevronRight className="h-3 w-3 mr-1" />
+            Thu gọn
+          </Button>
+        </div>
+
         {/* Toggle minimap */}
         <Button
           variant={showMinimap ? 'secondary' : 'ghost'}
@@ -871,6 +1135,57 @@ export function FamilyTree() {
         >
           <Maximize2 className="h-4 w-4 mr-2" />
           Minimap
+        </Button>
+
+        {/* Tree-only PDF export */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleExportPdf}
+          disabled={isExportingPdf || isExportingFull || isExportingWord || !layout}
+          className="hidden md:flex"
+          title="Xuất sơ đồ cây (PDF)"
+        >
+          {isExportingPdf ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <FileDown className="h-4 w-4 mr-2" />
+          )}
+          PDF
+        </Button>
+
+        {/* Full genealogy PDF export */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowExportDialog(true)}
+          disabled={isExportingFull || isExportingPdf || isExportingWord || !layout}
+          className="hidden md:flex"
+          title="Xuất đầy đủ Gia Phả (bìa + lịch sử + cây + lý lịch thành viên)"
+        >
+          {isExportingFull ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <BookText className="h-4 w-4 mr-2" />
+          )}
+          Xuất Gia Phả PDF
+        </Button>
+
+        {/* Full genealogy WORD export */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowWordDialog(true)}
+          disabled={isExportingWord || isExportingFull || isExportingPdf || !layout}
+          className="hidden md:flex"
+          title="Xuất đầy đủ Gia Phả ra định dạng Word (.docx)"
+        >
+          {isExportingWord ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <FileText className="h-4 w-4 mr-2 text-blue-700" />
+          )}
+          Xuất Gia Phả Word
         </Button>
 
         {/* Pan indicator */}
@@ -1010,6 +1325,242 @@ export function FamilyTree() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Export Gia Phả Dialog ─────────────────────────────────────────── */}
+      <Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookText className="h-5 w-5 text-amber-700" />
+              Xuất Gia Phả PDF
+            </DialogTitle>
+            <DialogDescription>
+              Chọn các phần muốn đưa vào tài liệu PDF.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Cover */}
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="opt-cover"
+                checked={exportOptions.includeCover}
+                onCheckedChange={(v) =>
+                  setExportOptions((o) => ({ ...o, includeCover: !!v }))
+                }
+              />
+              <div className="grid gap-0.5">
+                <Label htmlFor="opt-cover" className="font-medium cursor-pointer">
+                  Trang bìa
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Tên dòng họ, thủy tổ, năm thành lập, nguồn gốc
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* History */}
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="opt-history"
+                checked={exportOptions.includeHistory}
+                onCheckedChange={(v) =>
+                  setExportOptions((o) => ({ ...o, includeHistory: !!v }))
+                }
+              />
+              <div className="grid gap-0.5">
+                <Label htmlFor="opt-history" className="font-medium cursor-pointer">
+                  Lịch sử &amp; Nguồn gốc
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Mô tả, lịch sử dòng họ, sứ mệnh, nhà thờ họ
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Tree */}
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="opt-tree"
+                checked={exportOptions.includeTree}
+                onCheckedChange={(v) =>
+                  setExportOptions((o) => ({ ...o, includeTree: !!v }))
+                }
+              />
+              <div className="grid gap-0.5">
+                <Label htmlFor="opt-tree" className="font-medium cursor-pointer">
+                  Cây gia phả
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Sơ đồ phả hệ theo chiều ngang (A4 ngang)
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Biographies */}
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="opt-bio"
+                checked={exportOptions.includeBiographies}
+                onCheckedChange={(v) =>
+                  setExportOptions((o) => ({ ...o, includeBiographies: !!v }))
+                }
+              />
+              <div className="grid gap-0.5">
+                <Label htmlFor="opt-bio" className="font-medium cursor-pointer">
+                  Lý lịch thành viên
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Thông tin đầy đủ từng người, nhóm theo đời ({data?.people.length ?? 0} thành viên)
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowExportDialog(false)}>
+              Huỷ
+            </Button>
+            <Button
+              onClick={handleExportFullGiaPha}
+              disabled={
+                !exportOptions.includeCover &&
+                !exportOptions.includeHistory &&
+                !exportOptions.includeTree &&
+                !exportOptions.includeBiographies
+              }
+              className="bg-amber-700 hover:bg-amber-800 text-white"
+            >
+              <BookText className="h-4 w-4 mr-2" />
+              Xuất PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Export Gia Phả WORD Dialog ────────────────────────────────────── */}
+      <Dialog open={showWordDialog} onOpenChange={setShowWordDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-blue-700" />
+              Xuất Gia Phả Word (.docx)
+            </DialogTitle>
+            <DialogDescription>
+              Tài liệu Microsoft Word có thể chỉnh sửa, phù hợp in trên khổ A4.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Cover */}
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="word-opt-cover"
+                checked={wordExportOptions.includeCover}
+                onCheckedChange={(v) =>
+                  setWordExportOptions((o) => ({ ...o, includeCover: !!v }))
+                }
+              />
+              <div className="grid gap-0.5">
+                <Label htmlFor="word-opt-cover" className="font-medium cursor-pointer">
+                  Trang bìa
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Tên dòng họ, thủy tổ, năm thành lập, nguồn gốc
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* History */}
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="word-opt-history"
+                checked={wordExportOptions.includeHistory}
+                onCheckedChange={(v) =>
+                  setWordExportOptions((o) => ({ ...o, includeHistory: !!v }))
+                }
+              />
+              <div className="grid gap-0.5">
+                <Label htmlFor="word-opt-history" className="font-medium cursor-pointer">
+                  Lịch sử &amp; Nguồn gốc
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Mô tả, lịch sử, sứ mệnh, nhà thờ họ
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Tree */}
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="word-opt-tree"
+                checked={wordExportOptions.includeTree}
+                onCheckedChange={(v) =>
+                  setWordExportOptions((o) => ({ ...o, includeTree: !!v }))
+                }
+              />
+              <div className="grid gap-0.5">
+                <Label htmlFor="word-opt-tree" className="font-medium cursor-pointer">
+                  Cây gia phả
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Ảnh sơ đồ phả hệ chèn vào trang A4 ngang
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Biographies */}
+            <div className="flex items-start gap-3">
+              <Checkbox
+                id="word-opt-bio"
+                checked={wordExportOptions.includeBiographies}
+                onCheckedChange={(v) =>
+                  setWordExportOptions((o) => ({ ...o, includeBiographies: !!v }))
+                }
+              />
+              <div className="grid gap-0.5">
+                <Label htmlFor="word-opt-bio" className="font-medium cursor-pointer">
+                  Lý lịch thành viên
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Thông tin đầy đủ từng người, nhóm theo đời ({data?.people.length ?? 0} thành viên)
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowWordDialog(false)}>
+              Huỷ
+            </Button>
+            <Button
+              onClick={handleExportFullGiaPhaWord}
+              disabled={
+                !wordExportOptions.includeCover &&
+                !wordExportOptions.includeHistory &&
+                !wordExportOptions.includeTree &&
+                !wordExportOptions.includeBiographies
+              }
+              className="bg-blue-700 hover:bg-blue-800 text-white"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              Xuất Word
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

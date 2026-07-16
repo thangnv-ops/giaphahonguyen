@@ -2,8 +2,8 @@
 project: AncestorTree
 path: docs/02-design/technical-design.md
 type: design
-version: 1.4.0
-updated: 2026-02-26
+version: 2.3.0
+updated: 2026-03-01
 owner: "@dev-team"
 status: approved
 ---
@@ -19,6 +19,10 @@ status: approved
 | 1.2.0   | 2026-02-25 | @architect | Update to match actual implementation (S1-S6)    |
 | 1.3.0   | 2026-02-25 | @architect | Add Cầu đương tables + DFS rotation algorithm (Sprint 7) |
 | 1.4.0   | 2026-02-26 | @architect | Add Local Development Mode — Supabase CLI + Docker (Sprint 8) |
+| 1.5.0   | 2026-02-26 | @architect | Add Desktop App Architecture — Electron + sql.js Shim (Sprint 9 Phase 1) |
+| 2.1.0   | 2026-02-26 | @pm        | Add Landing Page route group + SEO architecture (Sprint 10) |
+| 2.2.0   | 2026-02-27 | @pm        | Add In-App Help Page `/help` route (Sprint 11)    |
+| 2.3.0   | 2026-03-01 | @architect | Add Privacy, Verification & Sub-admin architecture (Sprint 12) |
 
 ---
 
@@ -799,6 +803,9 @@ src/
 │   ├── (auth)/                       # Auth pages (no sidebar)
 │   │   ├── login/page.tsx
 │   │   └── register/page.tsx
+│   ├── (landing)/                    # Public landing page (no auth, no sidebar)
+│   │   ├── layout.tsx                # Minimal layout — no AuthProvider/sidebar
+│   │   └── welcome/page.tsx          # Landing page (7 sections, SSR static)
 │   ├── (main)/                       # Main app (with sidebar)
 │   │   ├── layout.tsx                # Sidebar + Header layout
 │   │   ├── page.tsx                  # Dashboard/Home with stats
@@ -818,6 +825,7 @@ src/
 │   │   ├── achievements/page.tsx     # Achievement honors (v1.1)
 │   │   ├── fund/page.tsx             # Education fund dashboard (v1.1)
 │   │   ├── charter/page.tsx          # Hương ước / Clan rules (v1.1)
+│   │   ├── help/page.tsx             # In-app help guide (v2.2)
 │   │   └── admin/
 │   │       ├── page.tsx              # Admin dashboard
 │   │       ├── users/page.tsx        # User management
@@ -1202,6 +1210,110 @@ export interface ChiConfig {
 **Setup:** `pnpm local:setup` → auto chạy migrations + seed data.
 **Chi tiết:** Xem [LOCAL-DEVELOPMENT.md](../04-build/LOCAL-DEVELOPMENT.md).
 
+### 10.3 Desktop Mode (Standalone App) (v2.0)
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│                    ELECTRON APP                               │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │  BrowserWindow (Renderer)                             │    │
+│  │                                                       │    │
+│  │  sqlite-supabase-shim.ts (client-side)               │    │
+│  │    .from('people').select('*').eq('id', x)            │    │
+│  │    → serialize to JSON → fetch('/api/desktop-db')     │    │
+│  └────────────────────────┬──────────────────────────────┘    │
+│                           │ HTTP (localhost)                   │
+│  ┌────────────────────────▼──────────────────────────────┐    │
+│  │  Next.js Standalone Server (Node.js)                   │    │
+│  │                                                        │    │
+│  │  /api/desktop-db/route.ts                             │    │
+│  │    → getDatabase() singleton → build SQL → sql.js     │    │
+│  │    → boolean/JSONB conversion → flushToDisk()         │    │
+│  │    → return {data, error} as JSON                     │    │
+│  │                                                        │    │
+│  │  /api/media/[...path]/route.ts                        │    │
+│  │    → serve local files from ~/AncestorTree/media/     │    │
+│  └────────────────────────┬──────────────────────────────┘    │
+│                           │                                   │
+│                   ┌───────▼───────┐                           │
+│                   │   SQLite DB   │                           │
+│                   │ ancestortree  │                           │
+│                   │   .db (file)  │                           │
+│                   └───────────────┘                           │
+│                                                              │
+│  Data: ~/AncestorTree/data/ancestortree.db                   │
+│  Media: ~/AncestorTree/media/                                │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Key design:** Supabase Client Shim — giả lập Supabase JS API trên SQLite (sql.js WASM):
+
+- **Data layer (5 files, 79 functions): KHÔNG ĐỔI**
+- **Hooks (7 files): KHÔNG ĐỔI**
+- **Pages/Components (~40 files): KHÔNG ĐỔI**
+- **Chỉ modify 3 existing files + thêm ~18 files mới**
+
+**Desktop-specific:**
+
+- `NEXT_PUBLIC_DESKTOP_MODE=true` → middleware bypasses auth, supabase.ts returns shim client
+- `ELECTRON_BUILD=true` → `next.config.ts` sets `output: 'standalone'` (ADR-004)
+- sql.js persistence: singleton `getDatabase()` + `flushToDisk()` atomic write after every mutation
+- Single-user admin mode — no RLS, no auth, no role checks
+- ADRs: [ADR-001](ADR/ADR-001-sqlite-adapter.md), [ADR-002](ADR/ADR-002-desktop-db-decomposition.md), [ADR-003](ADR/ADR-003-media-export-format.md), [ADR-004](ADR/ADR-004-standalone-output-conditional.md)
+
+### 10.4 Landing Page — Public Route Group (v2.1)
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                    NEXT.JS APP ROUTER                             │
+│                                                                  │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  Root Layout (layout.tsx)                                  │  │
+│  │  → Inter font, QueryProvider, AuthProvider, Toaster        │  │
+│  │                                                            │  │
+│  │  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐  │  │
+│  │  │  (auth)/    │  │  (landing)/ │  │     (main)/      │  │  │
+│  │  │  login      │  │  welcome    │  │  sidebar + auth  │  │  │
+│  │  │  register   │  │  (public)   │  │  tree, people…   │  │  │
+│  │  │  forgot-pw  │  │             │  │  admin panel     │  │  │
+│  │  └─────────────┘  └──────────────┘  └──────────────────┘  │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  Middleware: /welcome in publicPaths → no auth required          │
+│  URL: https://ancestortree.info/welcome                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Route Group: `(landing)/`**
+
+- `layout.tsx` — Minimal wrapper: `<div className="min-h-screen bg-background">{children}</div>`. No sidebar, no navigation chrome. Inherits root layout providers (known limitation — AuthProvider/QueryProvider loaded but unused; acceptable overhead, no functional impact).
+- `welcome/page.tsx` — Server Component (static content, no client-side data fetching). 7 sections: Hero, Features (8 cards), Screenshots, Download, Community, For Developers, Footer.
+- Middleware: `/welcome` added to `publicPaths` array. Authenticated users are NOT redirected away from `/welcome` (unlike `/login`, `/register`).
+
+**SEO & Meta:**
+
+| Item | Implementation |
+|------|----------------|
+| Canonical URL | `<link rel="canonical" href="https://ancestortree.info/welcome" />` via Next.js `metadata.alternates.canonical` |
+| Open Graph | `og:title`, `og:description`, `og:image` → `/og-landing.png` (1200×630) |
+| robots.txt | `public/robots.txt` — Allow all crawlers on `/welcome`, Disallow authenticated routes (`/people`, `/tree`, `/admin`, etc.) |
+| Sitemap | Single-page: only `/welcome` in `sitemap.xml` (optional, low priority) |
+
+**Download Links — State B (Pending):**
+
+Desktop build artifacts (.dmg, .exe) chưa có trên GitHub Releases tại thời điểm launch. Landing page hiển thị:
+
+- "Sắp có — theo dõi GitHub Releases" với link đến Releases page
+- Badge "Coming Soon" thay vì file size / version cụ thể
+- Khi artifacts có: cập nhật thành State A (direct download links)
+
+**Vercel Domain:**
+
+- Custom domain `ancestortree.info` → same Vercel deployment
+- Domain `ancestortree.info` purchased & configured on Vercel
+- Single `pnpm build`, single deployment — landing page + main app cùng origin
+
 ---
 
 ## 11. Testing Strategy
@@ -1231,7 +1343,74 @@ export interface ChiConfig {
 
 ---
 
-## 12. Approval
+## 12. Sprint 12: Privacy, Verification & Sub-admin Architecture (v2.3.0)
+
+### 12.1 Two-Step Verification Flow
+
+```
+User đăng ký → Supabase Auth gửi email xác nhận → User click link → email_confirmed = true
+→ Login → Middleware check profiles.is_verified
+  → false → Redirect /pending-verification (chờ admin duyệt)
+  → true  → Full access (theo role)
+```
+
+**Key:** Email verification (Supabase native) ≠ Account verification (admin approve). Cả hai đều phải pass.
+
+### 12.2 New Profile Columns
+
+| Column | Type | Default | Migration |
+|--------|------|---------|-----------|
+| `is_verified` | BOOLEAN | false | `20260228000008_sprint12` |
+| `can_verify_members` | BOOLEAN | false | `20260228000008_sprint12` |
+| `is_suspended` | BOOLEAN | false | `20260228000009_user_management` |
+| `suspension_reason` | TEXT | null | `20260228000009_user_management` |
+
+### 12.3 User Management CRUD
+
+| Action | Data Layer Function | RLS Policy | Notes |
+|--------|-------------------|------------|-------|
+| Verify/Unverify | `verifyUser(userId, bool)` | Admin UPDATE on profiles | Sets `is_verified` |
+| Suspend | `suspendUser(userId, reason)` | Admin UPDATE on profiles | Auth provider blocks login |
+| Unsuspend | `unsuspendUser(userId)` | Admin UPDATE on profiles | Clears `suspension_reason` |
+| Delete | `deleteUserAccount(userId)` | Server action (service role) | Cascade deletes profile |
+| Change role | `updateUserRole(userId, role)` | Admin UPDATE on profiles | admin/editor/viewer |
+| Link person | `updateLinkedPerson(userId, personId)` | Admin UPDATE on profiles | FR-507 tree mapping |
+| Set edit root | `updateEditRootPerson(userId, personId)` | Admin UPDATE on profiles | FR-509 branch scope |
+
+### 12.4 Sub-admin Scope (can_verify_members)
+
+```
+Editor + can_verify_members = true + edit_root_person_id = X
+→ Can verify users whose linked_person is in subtree of X
+→ RLS: is_person_in_subtree(edit_root_person_id, profiles.linked_person)
+→ Client: filter profiles for UX clarity
+```
+
+- `is_person_in_subtree(root_id, target_id)` — recursive SQL function from Sprint 7.5
+- No new role needed — reuses `editor` + boolean flag
+
+### 12.5 Privacy-Aware Document Access
+
+| `privacy_level` | Label | Who can see |
+|-----------------|-------|-------------|
+| 0 | Công khai (Public) | All authenticated users |
+| 1 | Thành viên (Members) | All authenticated users (default) |
+| 2 | Riêng tư (Admin only) | Admin only |
+
+RLS: 3 separate SELECT policies on `clan_documents` — all require `auth.uid() IS NOT NULL`.
+
+### 12.6 Suspension Flow
+
+```
+Admin suspends user → profiles.is_suspended = true, suspension_reason = "..."
+→ User next login → auth-provider.tsx fetchProfile() checks is_suspended
+→ If suspended → supabase.auth.signOut() → redirect /login?error=suspended
+→ Login page shows "Tài khoản đã bị đình chỉ" toast
+```
+
+---
+
+## 13. Approval
 
 | Role | Name | Date | Signature |
 |------|------|------|-----------|

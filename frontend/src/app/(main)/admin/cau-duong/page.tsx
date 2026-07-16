@@ -15,8 +15,10 @@ import {
   useUpdateCauDuongPool,
   useCauDuongAssignments,
   useAutoAssignNextCeremony,
+  useCreateCauDuongAssignment,
   useUpdateCauDuongAssignment,
   useEligibleMembers,
+  useNextHostInRotation,
 } from '@/hooks/use-cau-duong';
 import { usePeople } from '@/hooks/use-people';
 import { useAuth } from '@/components/auth/auth-provider';
@@ -32,6 +34,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   RotateCcw, Plus, Pencil, Zap, UserCheck, CalendarClock, CheckCircle2, Lock,
+  ArrowUp, ArrowDown, ListRestart,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
@@ -69,6 +72,7 @@ function PoolForm({
     ancestor_id: string;
     min_generation: number;
     max_age_lunar: number;
+    require_married: boolean;
     description?: string;
   }) => void;
   isPending: boolean;
@@ -77,6 +81,7 @@ function PoolForm({
   const [ancestorId, setAncestorId] = useState(pool?.ancestor_id || '');
   const [minGen, setMinGen] = useState(pool?.min_generation?.toString() || '12');
   const [maxAge, setMaxAge] = useState(pool?.max_age_lunar?.toString() || '70');
+  const [requireMarried, setRequireMarried] = useState(pool?.require_married ?? true);
   const [description, setDescription] = useState(pool?.description || '');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -90,6 +95,7 @@ function PoolForm({
       ancestor_id: ancestorId,
       min_generation: parseInt(minGen) || 1,
       max_age_lunar: parseInt(maxAge) || 70,
+      require_married: requireMarried,
       description: description.trim() || undefined,
     });
   };
@@ -137,6 +143,18 @@ function PoolForm({
             max={120}
           />
         </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          id="require-married"
+          checked={requireMarried}
+          onChange={e => setRequireMarried(e.target.checked)}
+          className="h-4 w-4 rounded border-gray-300"
+        />
+        <Label htmlFor="require-married" className="font-normal cursor-pointer">
+          Chỉ nam giới đã lập gia đình (có vợ con trong hệ thống)
+        </Label>
       </div>
       <div>
         <Label>Mô tả</Label>
@@ -277,6 +295,169 @@ function RescheduleDialog({
   );
 }
 
+// ─── Assign Dialog ────────────────────────────────────────────────────────────
+
+function AssignDialog({
+  ceremonyLabel,
+  eligibleMembers,
+  defaultPersonId,
+  onConfirm,
+  isPending,
+}: {
+  ceremonyLabel: string;
+  eligibleMembers: { person: { id: string; display_name: string; generation?: number }; ageLunar: number }[];
+  defaultPersonId?: string;
+  onConfirm: (personId: string) => void;
+  isPending: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState('');
+
+  // Reset selection when dialog opens
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+    if (isOpen) {
+      setSelectedId(defaultPersonId || eligibleMembers[0]?.person.id || '');
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedId) { toast.error('Chọn người thực hiện'); return; }
+    onConfirm(selectedId);
+    setOpen(false);
+  };
+
+  const selectedMember = eligibleMembers.find(m => m.person.id === selectedId);
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button size="sm">
+          <Zap className="h-3.5 w-3.5 mr-1" />
+          Phân công
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Phân công {ceremonyLabel}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <Label>Người thực hiện *</Label>
+            <Select value={selectedId} onValueChange={setSelectedId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn thành viên" />
+              </SelectTrigger>
+              <SelectContent>
+                {eligibleMembers.map((m, idx) => (
+                  <SelectItem key={m.person.id} value={m.person.id}>
+                    {idx + 1}. {m.person.display_name}
+                    {m.person.generation ? ` (Đời ${m.person.generation})` : ''}
+                    {m.ageLunar > 0 ? ` — ${m.ageLunar} tuổi` : ''}
+                    {m.person.id === defaultPersonId ? ' ← mặc định' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedMember && selectedMember.person.id === defaultPersonId && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Người tiếp theo trong vòng xoay
+              </p>
+            )}
+          </div>
+          <Button type="submit" disabled={isPending || !selectedId} className="w-full">
+            {isPending ? 'Đang lưu...' : `Phân công cho ${selectedMember?.person.display_name ?? '...'}`}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Edit Assignment Dialog ──────────────────────────────────────────────────
+
+function EditAssignmentDialog({
+  assignment,
+  eligibleMembers,
+  allPeople,
+  onConfirm,
+  isPending,
+}: {
+  assignment: { id: string; host_person_id?: string; host_person?: { display_name: string } | null };
+  eligibleMembers: { person: { id: string; display_name: string; generation?: number }; ageLunar: number }[];
+  allPeople: { id: string; display_name: string; generation?: number }[];
+  onConfirm: (hostPersonId: string) => void;
+  isPending: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState('');
+
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+    if (isOpen) {
+      setSelectedId(assignment.host_person_id ?? '');
+    }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedId) { toast.error('Chọn người thực hiện'); return; }
+    onConfirm(selectedId);
+    setOpen(false);
+  };
+
+  // Show eligible members first, then all people as fallback
+  const selectedName = eligibleMembers.find(m => m.person.id === selectedId)?.person.display_name
+    || allPeople.find(p => p.id === selectedId)?.display_name
+    || '...';
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <Pencil className="h-3.5 w-3.5 mr-1" />
+          Sửa
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Sửa phân công</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <Label>Hiện tại: <span className="font-medium">{assignment.host_person?.display_name ?? '—'}</span></Label>
+          </div>
+          <div>
+            <Label>Đổi sang *</Label>
+            <Select value={selectedId} onValueChange={setSelectedId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn thành viên" />
+              </SelectTrigger>
+              <SelectContent>
+                {eligibleMembers.length > 0 && (
+                  <>
+                    {eligibleMembers.map((m, idx) => (
+                      <SelectItem key={m.person.id} value={m.person.id}>
+                        {idx + 1}. {m.person.display_name}
+                        {m.person.generation ? ` (Đời ${m.person.generation})` : ''}
+                        {m.ageLunar > 0 ? ` — ${m.ageLunar} tuổi` : ''}
+                      </SelectItem>
+                    ))}
+                  </>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button type="submit" disabled={isPending || !selectedId || selectedId === (assignment.host_person_id ?? '')} className="w-full">
+            {isPending ? 'Đang lưu...' : `Đổi sang ${selectedName}`}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminCauDuongPage() {
@@ -295,7 +476,9 @@ export default function AdminCauDuongPage() {
 
   const { data: assignments, isLoading: assignmentsLoading } = useCauDuongAssignments(poolId, selectedYear);
   const { data: eligibleMembers } = useEligibleMembers(poolId, selectedYear);
+  const { data: nextHost } = useNextHostInRotation(poolId);
   const autoAssignMutation = useAutoAssignNextCeremony();
+  const createAssignmentMutation = useCreateCauDuongAssignment();
   const updateAssignmentMutation = useUpdateCauDuongAssignment();
 
   if (!isEditor) {
@@ -313,7 +496,7 @@ export default function AdminCauDuongPage() {
   }
 
   const handleCreatePool = async (data: {
-    name: string; ancestor_id: string; min_generation: number; max_age_lunar: number; description?: string;
+    name: string; ancestor_id: string; min_generation: number; max_age_lunar: number; require_married: boolean; description?: string;
   }) => {
     try {
       await createPoolMutation.mutateAsync({ ...data, is_active: true });
@@ -325,7 +508,7 @@ export default function AdminCauDuongPage() {
   };
 
   const handleUpdatePool = async (data: {
-    name: string; ancestor_id: string; min_generation: number; max_age_lunar: number; description?: string;
+    name: string; ancestor_id: string; min_generation: number; max_age_lunar: number; require_married: boolean; description?: string;
   }) => {
     if (!editingPool) return;
     try {
@@ -338,13 +521,40 @@ export default function AdminCauDuongPage() {
     }
   };
 
-  const handleAutoAssign = async (ceremonyType: CauDuongCeremonyType) => {
+  const handleManualAssign = async (ceremonyType: CauDuongCeremonyType, hostPersonId: string) => {
     if (!poolId) return;
     try {
-      await autoAssignMutation.mutateAsync({ poolId, year: selectedYear, ceremonyType, createdBy: profile?.id ?? '' });
-      toast.success(`Đã phân công ${CAU_DUONG_CEREMONY_LABELS[ceremonyType]}`);
+      // Find rotation index for this person
+      const rotationIndex = eligibleMembers?.findIndex(m => m.person.id === hostPersonId) ?? 0;
+      await createAssignmentMutation.mutateAsync({
+        pool_id: poolId,
+        year: selectedYear,
+        ceremony_type: ceremonyType,
+        host_person_id: hostPersonId,
+        status: 'scheduled',
+        rotation_index: rotationIndex,
+        created_by: profile?.id ?? '',
+      });
+      const hostName = eligibleMembers?.find(m => m.person.id === hostPersonId)?.person.display_name;
+      toast.success(`Đã phân công ${CAU_DUONG_CEREMONY_LABELS[ceremonyType]} cho ${hostName}`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Lỗi khi phân công');
+    }
+  };
+
+  const handleEditAssignment = async (assignmentId: string, hostPersonId: string) => {
+    if (!poolId) return;
+    try {
+      await updateAssignmentMutation.mutateAsync({
+        id: assignmentId,
+        poolId,
+        input: { host_person_id: hostPersonId },
+      });
+      const hostName = eligibleMembers?.find(m => m.person.id === hostPersonId)?.person.display_name
+        || people?.find(p => p.id === hostPersonId)?.display_name;
+      toast.success(`Đã đổi phân công cho ${hostName}`);
+    } catch {
+      toast.error('Lỗi khi sửa phân công');
     }
   };
 
@@ -534,25 +744,33 @@ export default function AdminCauDuongPage() {
 
                       <div className="flex items-center gap-2 flex-wrap">
                         {assignment && (
-                          <Badge
-                            variant={
-                              assignment.status === 'completed' ? 'default' :
-                              assignment.status === 'cancelled' ? 'destructive' : 'secondary'
-                            }
-                          >
-                            {STATUS_LABELS[assignment.status]}
-                          </Badge>
+                          <>
+                            <Badge
+                              variant={
+                                assignment.status === 'completed' ? 'default' :
+                                assignment.status === 'cancelled' ? 'destructive' : 'secondary'
+                              }
+                            >
+                              {STATUS_LABELS[assignment.status]}
+                            </Badge>
+                            <EditAssignmentDialog
+                              assignment={assignment}
+                              eligibleMembers={eligibleMembers || []}
+                              allPeople={people || []}
+                              onConfirm={(hostPersonId) => handleEditAssignment(assignment.id, hostPersonId)}
+                              isPending={updateAssignmentMutation.isPending}
+                            />
+                          </>
                         )}
 
-                        {!assignment && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleAutoAssign(ceremonyType)}
-                            disabled={autoAssignMutation.isPending}
-                          >
-                            <Zap className="h-3.5 w-3.5 mr-1" />
-                            Phân công
-                          </Button>
+                        {!assignment && eligibleMembers && eligibleMembers.length > 0 && (
+                          <AssignDialog
+                            ceremonyLabel={CAU_DUONG_CEREMONY_LABELS[ceremonyType]}
+                            eligibleMembers={eligibleMembers}
+                            defaultPersonId={nextHost?.member.person.id}
+                            onConfirm={(personId) => handleManualAssign(ceremonyType, personId)}
+                            isPending={createAssignmentMutation.isPending}
+                          />
                         )}
 
                         {canAction && (
@@ -591,13 +809,40 @@ export default function AdminCauDuongPage() {
             </CardContent>
           </Card>
 
-          {/* Eligible members list */}
+          {/* Eligible members list with reorder */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Danh sách xoay vòng</CardTitle>
-              <CardDescription>
-                Thứ tự DFS preorder — đời trên trước, trong mỗi đời theo thứ tự gia đình
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">Danh sách xoay vòng</CardTitle>
+                  <CardDescription>
+                    {firstPool.custom_order?.length
+                      ? 'Thứ tự tùy chỉnh — dùng mũi tên để điều chỉnh'
+                      : 'Thứ tự DFS preorder — đời trên trước, trong mỗi đời theo thứ tự gia đình'}
+                  </CardDescription>
+                </div>
+                {firstPool.custom_order?.length ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        await updatePoolMutation.mutateAsync({
+                          id: firstPool.id,
+                          input: { custom_order: undefined },
+                        });
+                        toast.success('Đã khôi phục thứ tự mặc định');
+                      } catch {
+                        toast.error('Lỗi khi khôi phục');
+                      }
+                    }}
+                    disabled={updatePoolMutation.isPending}
+                  >
+                    <ListRestart className="h-3.5 w-3.5 mr-1" />
+                    Mặc định
+                  </Button>
+                ) : null}
+              </div>
             </CardHeader>
             <CardContent>
               {!eligibleMembers || eligibleMembers.length === 0 ? (
@@ -623,9 +868,53 @@ export default function AdminCauDuongPage() {
                           </p>
                         </div>
                       </div>
-                      <span className="text-xs text-muted-foreground">
-                        {m.ageLunar > 0 ? `${m.ageLunar} tuổi âm` : ''}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                          {m.ageLunar > 0 ? `${m.ageLunar} tuổi âm` : ''}
+                        </span>
+                        <div className="flex gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={idx === 0 || updatePoolMutation.isPending}
+                            onClick={async () => {
+                              const ids = eligibleMembers.map(em => em.person.id);
+                              [ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]];
+                              try {
+                                await updatePoolMutation.mutateAsync({
+                                  id: firstPool.id,
+                                  input: { custom_order: ids },
+                                });
+                              } catch {
+                                toast.error('Lỗi khi cập nhật thứ tự');
+                              }
+                            }}
+                          >
+                            <ArrowUp className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={idx === eligibleMembers.length - 1 || updatePoolMutation.isPending}
+                            onClick={async () => {
+                              const ids = eligibleMembers.map(em => em.person.id);
+                              [ids[idx], ids[idx + 1]] = [ids[idx + 1], ids[idx]];
+                              try {
+                                await updatePoolMutation.mutateAsync({
+                                  id: firstPool.id,
+                                  input: { custom_order: ids },
+                                });
+                              } catch {
+                                toast.error('Lỗi khi cập nhật thứ tự');
+                              }
+                            }}
+                          >
+                            <ArrowDown className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>

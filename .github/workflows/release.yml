@@ -1,0 +1,160 @@
+name: Build & Release Desktop App
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v2.1.0)'
+        required: false
+        default: ''
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── macOS (.dmg x64 + arm64) ───────────────────────────────────────────────
+  build-mac:
+    name: Build macOS (.dmg)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Build Next.js standalone (for Electron)
+        run: cd frontend && pnpm build
+        env:
+          ELECTRON_BUILD: 'true'
+          NEXT_PUBLIC_DESKTOP_MODE: 'true'
+
+      - name: Copy static assets into standalone
+        run: |
+          cp -r frontend/.next/static frontend/.next/standalone/.next/static
+          cp -r frontend/public frontend/.next/standalone/public
+
+      - name: Install desktop dependencies
+        run: cd desktop && pnpm install --frozen-lockfile
+
+      - name: Generate app icons
+        run: cd desktop && node scripts/generate-icons.mjs
+
+      - name: Build Electron + compile TypeScript
+        run: cd desktop && npx tsc
+
+      - name: Build macOS .dmg
+        run: cd desktop && npx electron-builder --mac --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-mac
+          path: desktop/release/*.dmg
+          retention-days: 7
+
+  # ─── Windows (.exe NSIS) ────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows (.exe)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            desktop/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Build Next.js standalone (for Electron)
+        run: cd frontend && pnpm build
+        env:
+          ELECTRON_BUILD: 'true'
+          NEXT_PUBLIC_DESKTOP_MODE: 'true'
+
+      - name: Copy static assets into standalone
+        run: |
+          xcopy frontend\.next\static frontend\.next\standalone\.next\static /E /I /Y
+          xcopy frontend\public frontend\.next\standalone\public /E /I /Y
+        shell: cmd
+
+      - name: Install desktop dependencies
+        run: cd desktop && pnpm install --frozen-lockfile
+
+      - name: Generate app icons
+        run: cd desktop && node scripts/generate-icons.mjs
+
+      - name: Build Electron + compile TypeScript
+        run: cd desktop && npx tsc
+
+      - name: Build Windows .exe (signed)
+        run: cd desktop && npx electron-builder --win --publish never
+        env:
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-windows
+          path: desktop/release/*.exe
+          retention-days: 7
+
+  # ─── Upload to existing GitHub Release ─────────────────────────────────────
+  release:
+    name: Upload to GitHub Release
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-mac
+          path: dist/mac
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-windows
+          path: dist/windows
+
+      - name: List release files
+        run: find dist/ -type f
+
+      - name: Upload assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/mac/*.dmg
+            dist/windows/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

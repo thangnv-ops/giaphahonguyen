@@ -1,0 +1,32 @@
+{
+  "name": "ancestortree-desktop",
+  "version": "2.5.0",
+  "description": "Gia Phả Điện Tử — Standalone Desktop App",
+  "author": "Minh-Tam-Solution",
+  "license": "MIT",
+  "main": "dist/electron/main.js",
+  "scripts": {
+    "dev": "tsc && concurrently \"tsc -w\" \"electron .\"",
+    "build:next": "cd ../frontend && ELECTRON_BUILD=true pnpm build",
+    "build:electron": "tsc",
+    "build": "pnpm build:next && pnpm build:electron && electron-builder",
+    "icons": "node scripts/generate-icons.mjs",
+    "build:mac": "node scripts/generate-icons.mjs && pnpm build:next && pnpm build:electron && electron-builder --mac",
+    "build:win": "node scripts/generate-icons.mjs && pnpm build:next && pnpm build:electron && electron-builder --win",
+    "build:linux": "node scripts/generate-icons.mjs && pnpm build:next && pnpm build:electron && electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "sql.js": "^1.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "concurrently": "^9.0.0",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.7.0"
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": ["electron"]
+  }
+}

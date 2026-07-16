@@ -125,6 +125,32 @@
   }
 }
 
+/* Elderly mode — larger fonts and touch targets for senior users */
+.elderly-mode {
+  font-size: 20px !important;
+}
+
+.elderly-mode .text-sm {
+  font-size: 1rem !important;
+  line-height: 1.5rem !important;
+}
+
+.elderly-mode .text-xs {
+  font-size: 0.875rem !important;
+  line-height: 1.25rem !important;
+}
+
+.elderly-mode .text-2xl {
+  font-size: 2rem !important;
+}
+
+/* Touch-friendly targets — only interactive elements, not inline links */
+.elderly-mode button:not(.inline),
+.elderly-mode [role="button"],
+.elderly-mode [data-sidebar] a {
+  min-height: 44px;
+}
+
 /* Print styles for book view and general printing */
 @media print {
   header,

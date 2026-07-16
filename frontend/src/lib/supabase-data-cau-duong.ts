@@ -46,11 +46,12 @@ export function isEligibleForCauDuong(
   minGeneration: number,
   maxAgeLunar: number,
   currentYear: number,
+  requireMarried: boolean = true,
 ): boolean {
   if (person.gender !== 1) return false;
   if (!person.is_living) return false;
   if (person.generation < minGeneration) return false;
-  if (!fatherIds.has(person.id)) return false; // chưa lập gia đình
+  if (requireMarried && !fatherIds.has(person.id)) return false; // chưa lập gia đình
   const age = calcAgeLunar(person.birth_year, currentYear);
   if (age === 0) return false; // không rõ năm sinh
   if (age >= maxAgeLunar) return false; // đã 70+ tuổi âm
@@ -250,26 +251,44 @@ export async function getEligibleMembersInDFSOrder(
   // 4. DFS từ tổ tông → danh sách UUID con cháu theo thứ tự gia phả
   const dfsOrder = buildDFSOrder(pool.ancestor_id, familiesByFatherId, childrenByFamilyId);
 
-  // 5. Lọc và đóng gói kết quả
-  const result: CauDuongEligibleMember[] = [];
-  let dfsIndex = 0;
+  // 5. Lọc eligible members
+  const eligibleMap = new Map<string, { person: Person; ageLunar: number; isMarried: boolean }>();
 
   for (const personId of dfsOrder) {
     const person = peopleById.get(personId);
     if (!person) continue;
 
-    const ageLunar = calcAgeLunar(person.birth_year, currentYear);
-    const married = fatherIds.has(person.id);
-
-    if (isEligibleForCauDuong(person, fatherIds, pool.min_generation, pool.max_age_lunar, currentYear)) {
-      result.push({
+    if (isEligibleForCauDuong(person, fatherIds, pool.min_generation, pool.max_age_lunar, currentYear, pool.require_married)) {
+      eligibleMap.set(personId, {
         person,
-        dfsIndex,
-        ageLunar,
-        isMarried: married,
+        ageLunar: calcAgeLunar(person.birth_year, currentYear),
+        isMarried: fatherIds.has(person.id),
       });
-      dfsIndex++;
     }
+  }
+
+  // 6. Áp dụng thứ tự: custom_order nếu có, ngược lại DFS order
+  const customOrder = Array.isArray(pool.custom_order) ? pool.custom_order : null;
+  let orderedIds: string[];
+
+  if (customOrder && customOrder.length > 0) {
+    // Custom order first, then append any eligible members not in custom list (new members)
+    const inCustom = new Set(customOrder.filter(id => eligibleMap.has(id)));
+    const notInCustom = dfsOrder.filter(id => eligibleMap.has(id) && !inCustom.has(id));
+    orderedIds = [...customOrder.filter(id => eligibleMap.has(id)), ...notInCustom];
+  } else {
+    orderedIds = dfsOrder.filter(id => eligibleMap.has(id));
+  }
+
+  // 7. Đóng gói kết quả
+  const result: CauDuongEligibleMember[] = [];
+  let dfsIndex = 0;
+
+  for (const personId of orderedIds) {
+    const entry = eligibleMap.get(personId);
+    if (!entry) continue;
+    result.push({ ...entry, dfsIndex });
+    dfsIndex++;
   }
 
   return result;

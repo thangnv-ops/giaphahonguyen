@@ -2,8 +2,8 @@
  * @project AncestorTree
  * @file src/hooks/use-profiles.ts
  * @description React Query hooks for user profiles
- * @version 1.0.0
- * @updated 2026-02-24
+ * @version 1.2.0
+ * @updated 2026-03-01
  */
 
 'use client';
@@ -16,13 +16,19 @@ import {
   updateUserRole,
   updateLinkedPerson,
   updateEditRootPerson,
+  suspendUser,
+  unsuspendUser,
+  verifyUser,
+  getUnverifiedProfiles,
 } from '@/lib/supabase-data';
+import { deleteUserAccount } from '@/app/(main)/admin/users/actions';
 import type { Profile, UserRole } from '@/types';
 
 // Query keys
 export const profileKeys = {
   all: ['profiles'] as const,
   lists: () => [...profileKeys.all, 'list'] as const,
+  unverified: () => [...profileKeys.all, 'unverified'] as const,
   details: () => [...profileKeys.all, 'detail'] as const,
   detail: (id: string) => [...profileKeys.details(), id] as const,
 };
@@ -44,11 +50,18 @@ export function useProfile(userId: string | undefined) {
   });
 }
 
+export function useUnverifiedProfiles() {
+  return useQuery({
+    queryKey: profileKeys.unverified(),
+    queryFn: getUnverifiedProfiles,
+  });
+}
+
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
 export function useUpdateProfile() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: ({ userId, input }: { userId: string; input: Partial<Profile> }) =>
       updateProfile(userId, input),
@@ -91,6 +104,57 @@ export function useUpdateEditRootPerson() {
   return useMutation({
     mutationFn: ({ userId, personId }: { userId: string; personId: string | null }) =>
       updateEditRootPerson(userId, personId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: profileKeys.all });
+    },
+  });
+}
+
+// FR-512: suspend a user account
+export function useSuspendUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ userId, reason }: { userId: string; reason?: string }) =>
+      suspendUser(userId, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: profileKeys.all });
+    },
+  });
+}
+
+// FR-512: unsuspend a user account
+export function useUnsuspendUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (userId: string) => unsuspendUser(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: profileKeys.all });
+    },
+  });
+}
+
+// FR-511: verify/unverify a user account
+export function useVerifyUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ userId, verified }: { userId: string; verified: boolean }) =>
+      verifyUser(userId, verified),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: profileKeys.all });
+      queryClient.invalidateQueries({ queryKey: profileKeys.unverified() });
+    },
+  });
+}
+
+// FR-513: delete a user account permanently
+export function useDeleteUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (userId: string) => deleteUserAccount(userId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: profileKeys.all });
     },

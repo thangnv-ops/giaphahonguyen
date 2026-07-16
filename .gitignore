@@ -6,10 +6,6 @@ node_modules/
 .next/
 out/
 
-# Build outputs
-dist/
-build/
-
 # Environment
 .env
 .env.local
@@ -43,5 +39,17 @@ docs/00-foundation/06-Community/
 # Do NOT commit — contains real names, dates, admin emails
 docs/data/
 
+# Code signing certificates — NEVER commit
+*.pfx
+*.p12
+*.pem
+
+# Electron build outputs — compiled JS (committed) vs release binaries (GitHub Releases)
+desktop/release/
+desktop/electron-dist/
+desktop/node_modules/
+
 # Claude Code local settings (may contain secrets)
 .claude/
+Prompt.md
+.vercel

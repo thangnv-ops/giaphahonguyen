@@ -4,8 +4,8 @@
  * @file scripts/local-setup.mjs
  * @description Cross-platform local development setup script.
  *              Starts Supabase CLI (Docker) and writes .env.local automatically.
- * @version 1.0.0
- * @updated 2026-02-26
+ * @version 1.1.0
+ * @updated 2026-03-02
  */
 
 import { execSync, spawnSync } from 'node:child_process'
@@ -93,14 +93,21 @@ if (statusResult.status !== 0) {
 
 const statusText = statusResult.stdout.toString()
 
-function extractValue(text, key) {
-  const match = text.match(new RegExp(`${key}:\\s*(.+)`))
-  return match ? match[1].trim() : null
+function extractValue(text, ...keys) {
+  for (const key of keys) {
+    // Old format (< v2.76): "key: value"
+    const plainMatch = text.match(new RegExp(`${key}:\\s*(.+)`))
+    if (plainMatch) return plainMatch[1].trim()
+    // New table format (v2.76+): "│ key │ value │"
+    const tableMatch = text.match(new RegExp(`│\\s*${key}\\s*│\\s*(.+?)\\s*│`))
+    if (tableMatch) return tableMatch[1].trim()
+  }
+  return null
 }
 
-const apiUrl      = extractValue(statusText, 'API URL')
-const anonKey     = extractValue(statusText, 'anon key')
-const serviceKey  = extractValue(statusText, 'service_role key')
+const apiUrl      = extractValue(statusText, 'API URL', 'Project URL')
+const anonKey     = extractValue(statusText, 'anon key', 'Publishable')
+const serviceKey  = extractValue(statusText, 'service_role key', 'Secret')
 
 if (!apiUrl || !anonKey) {
   err('Could not parse supabase status output.')

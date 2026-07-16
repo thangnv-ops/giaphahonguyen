@@ -83,6 +83,7 @@ export function useUpdateCauDuongPool() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: cauDuongKeys.pool(id) });
       queryClient.invalidateQueries({ queryKey: cauDuongKeys.pools() });
+      queryClient.invalidateQueries({ queryKey: cauDuongKeys.all }); // refresh eligible list when order changes
     },
   });
 }

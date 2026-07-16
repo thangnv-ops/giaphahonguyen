@@ -1,9 +1,9 @@
 /**
  * @project AncestorTree
  * @file src/lib/gedcom-export.ts
- * @description GEDCOM 5.5.1 export utility for family tree data
- * @version 1.0.0
- * @updated 2026-02-25
+ * @description GEDCOM 7.0 export utility with Vietnamese extension tags
+ * @version 2.0.0
+ * @updated 2026-03-09
  */
 
 import type { TreeData } from './supabase-data';
@@ -15,11 +15,11 @@ const GEDCOM_MONTHS = [
 ];
 
 function personXref(id: string): string {
-  return `@I${id.slice(0, 8)}@`;
+  return `@I${id.replace(/-/g, '')}@`;
 }
 
 function familyXref(id: string): string {
-  return `@F${id.slice(0, 8)}@`;
+  return `@F${id.replace(/-/g, '')}@`;
 }
 
 function formatGedcomDate(dateStr?: string, year?: number): string {
@@ -35,54 +35,41 @@ function formatGedcomDate(dateStr?: string, year?: number): string {
   return '';
 }
 
+/** GEDCOM 7.0 line builder — uses CONT for newlines only (CONC removed in 7.0, max line 4096) */
 function gedcomLine(level: number, tag: string, value?: string): string {
-  if (!value) return `${level} ${tag}`;
+  if (value == null) return `${level} ${tag}`;
 
-  // Split on newlines first using CONT, then apply CONC for oversized lines
   const textLines = value.split('\n');
   const output: string[] = [];
 
   for (let i = 0; i < textLines.length; i++) {
-    const segment = textLines[i];
     if (i === 0) {
-      const prefix = `${level} ${tag} `;
-      if (prefix.length + segment.length <= 255) {
-        output.push(`${prefix}${segment}`);
-      } else {
-        const firstLen = 255 - prefix.length;
-        output.push(`${prefix}${segment.slice(0, firstLen)}`);
-        let remaining = segment.slice(firstLen);
-        while (remaining.length > 0) {
-          const chunk = remaining.slice(0, 248);
-          output.push(`${level + 1} CONC ${chunk}`);
-          remaining = remaining.slice(248);
-        }
-      }
+      output.push(`${level} ${tag} ${textLines[i]}`);
     } else {
-      // Subsequent lines use CONT (continuation with newline)
-      const contPrefix = `${level + 1} CONT `;
-      if (contPrefix.length + segment.length <= 255) {
-        output.push(`${contPrefix}${segment}`);
-      } else {
-        const firstLen = 255 - contPrefix.length;
-        output.push(`${contPrefix}${segment.slice(0, firstLen)}`);
-        let remaining = segment.slice(firstLen);
-        while (remaining.length > 0) {
-          const chunk = remaining.slice(0, 248);
-          output.push(`${level + 1} CONC ${chunk}`);
-          remaining = remaining.slice(248);
-        }
-      }
+      output.push(`${level + 1} CONT ${textLines[i]}`);
     }
   }
 
   return output.join('\n');
 }
 
+/** Split Vietnamese display_name into Given /Surname/ (last-space heuristic) */
+function splitVietnameseName(person: Person): { given: string; surname: string } {
+  if (person.surname) {
+    const given = [person.first_name, person.middle_name].filter(Boolean).join(' ') || person.display_name;
+    return { given, surname: person.surname };
+  }
+  const parts = person.display_name.trim().split(' ');
+  if (parts.length <= 1) return { given: person.display_name, surname: '' };
+  const surname = parts[0];
+  const given = parts.slice(1).join(' ');
+  return { given, surname };
+}
+
 function buildPersonRecord(
   person: Person,
-  familyMap: Map<string, string[]>, // person_id -> family_ids where person is parent
-  childFamilyMap: Map<string, string[]>, // person_id -> family_ids where person is child
+  familyMap: Map<string, string[]>,
+  childFamilyMap: Map<string, string[]>,
 ): string {
   const lines: string[] = [];
   const xref = personXref(person.id);
@@ -90,14 +77,13 @@ function buildPersonRecord(
   lines.push(`0 ${xref} INDI`);
 
   // Name
-  const surname = person.surname || '';
-  const given = [person.first_name, person.middle_name].filter(Boolean).join(' ') || person.display_name;
+  const { given, surname } = splitVietnameseName(person);
   lines.push(gedcomLine(1, 'NAME', `${given} /${surname}/`));
   if (given) lines.push(gedcomLine(2, 'GIVN', given));
   if (surname) lines.push(gedcomLine(2, 'SURN', surname));
 
   // Sex
-  lines.push(gedcomLine(1, 'SEX', person.gender === 1 ? 'M' : 'F'));
+  lines.push(gedcomLine(1, 'SEX', person.gender === 1 ? 'M' : person.gender === 2 ? 'F' : 'U'));
 
   // Birth
   const birthDate = formatGedcomDate(person.birth_date, person.birth_year);
@@ -110,9 +96,13 @@ function buildPersonRecord(
   // Death
   if (!person.is_living) {
     const deathDate = formatGedcomDate(person.death_date, person.death_year);
-    lines.push('1 DEAT');
-    if (deathDate) lines.push(gedcomLine(2, 'DATE', deathDate));
-    if (person.death_place) lines.push(gedcomLine(2, 'PLAC', person.death_place));
+    if (deathDate || person.death_place) {
+      lines.push('1 DEAT');
+      if (deathDate) lines.push(gedcomLine(2, 'DATE', deathDate));
+      if (person.death_place) lines.push(gedcomLine(2, 'PLAC', person.death_place));
+    } else {
+      lines.push('1 DEAT Y');
+    }
   }
 
   // Occupation
@@ -124,6 +114,14 @@ function buildPersonRecord(
   const noteText = [person.biography, person.notes].filter(Boolean).join('\n\n');
   if (noteText) {
     lines.push(gedcomLine(1, 'NOTE', noteText));
+  }
+
+  // Extension tags — generation and chi branch
+  if (person.generation != null) {
+    lines.push(gedcomLine(1, '_GENER', String(person.generation)));
+  }
+  if (person.chi != null) {
+    lines.push(gedcomLine(1, '_CHI', String(person.chi)));
   }
 
   // Family links: as spouse/parent (FAMS)
@@ -172,7 +170,7 @@ function buildFamilyRecord(
     lines.push(gedcomLine(2, 'DATE', formatGedcomDate(family.divorce_date)));
   }
 
-  // Children
+  // Children (sorted by sort_order via data.children ordering)
   for (const childId of childrenIds) {
     if (peopleSet.has(childId)) {
       lines.push(gedcomLine(1, 'CHIL', personXref(childId)));
@@ -183,14 +181,14 @@ function buildFamilyRecord(
 }
 
 export function generateGedcom(data: TreeData): string {
-  // Filter out private people (privacy_level === 2)
+  // Filter out private people (privacy_level === 2) — PII fields (phone, email, etc.) NOT exported
   const people = data.people.filter(p => p.privacy_level !== 2);
   const peopleSet = new Set(people.map(p => p.id));
 
   // Build family lookup maps
-  const familyMap = new Map<string, string[]>(); // person -> families as parent
-  const childFamilyMap = new Map<string, string[]>(); // person -> families as child
-  const familyChildrenMap = new Map<string, string[]>(); // family -> children
+  const familyMap = new Map<string, string[]>();
+  const childFamilyMap = new Map<string, string[]>();
+  const familyChildrenMap = new Map<string, string[]>();
 
   for (const family of data.families) {
     if (family.father_id && peopleSet.has(family.father_id)) {
@@ -216,31 +214,31 @@ export function generateGedcom(data: TreeData): string {
     familyChildrenMap.set(child.family_id, famChildren);
   }
 
-  // Build GEDCOM content
+  // Build GEDCOM 7.0 content
   const now = new Date();
   const dateStr = `${now.getDate()} ${GEDCOM_MONTHS[now.getMonth()]} ${now.getFullYear()}`;
 
   const sections: string[] = [];
 
-  // Header
+  // Header — GEDCOM 7.0 format
   sections.push([
     '0 HEAD',
+    '1 GEDC',
+    '2 VERS 7.0',
     '1 SOUR AncestorTree',
-    '2 VERS 1.2.0',
+    '2 VERS 2.6.0',
     '2 NAME Gia Pha Dien Tu',
-    '1 DEST ANY',
     `1 DATE ${dateStr}`,
     '1 SUBM @SUB1@',
-    '1 GEDC',
-    '2 VERS 5.5.1',
-    '2 FORM LINEAGE-LINKED',
-    '1 CHAR UTF-8',
+    '1 SCHMA',
+    '2 TAG _GENER https://ancestortree.info/gedcom/generation',
+    '2 TAG _CHI https://ancestortree.info/gedcom/chi-branch',
   ].join('\n'));
 
   // Submitter
   sections.push([
     '0 @SUB1@ SUBM',
-    '1 NAME Dang Dinh - Thach Lam',
+    '1 NAME AncestorTree Export',
   ].join('\n'));
 
   // Individual records
@@ -262,7 +260,8 @@ export function generateGedcom(data: TreeData): string {
   // Trailer
   sections.push('0 TRLR');
 
-  return sections.join('\n') + '\n';
+  // GEDCOM 7.0: UTF-8 with BOM
+  return '\uFEFF' + sections.join('\n') + '\n';
 }
 
 export interface GedcomValidationResult {
@@ -272,17 +271,18 @@ export interface GedcomValidationResult {
 
 export function validateGedcom(content: string): GedcomValidationResult {
   const errors: string[] = [];
+  const stripped = content.replace(/^\uFEFF/, '');
 
-  if (!content.startsWith('0 HEAD')) {
+  if (!stripped.startsWith('0 HEAD')) {
     errors.push('Missing HEAD record');
   }
-  if (!content.trimEnd().endsWith('0 TRLR')) {
+  if (!stripped.trimEnd().endsWith('0 TRLR')) {
     errors.push('Missing TRLR record');
   }
 
   const indiRefs = new Set<string>();
   const famRefs = new Set<string>();
-  const lines = content.split('\n');
+  const lines = stripped.split('\n');
 
   for (const line of lines) {
     const indiMatch = line.match(/^0 (@I[^@]+@) INDI/);
@@ -292,7 +292,6 @@ export function validateGedcom(content: string): GedcomValidationResult {
     if (famMatch) famRefs.add(famMatch[1]);
   }
 
-  // Check cross-references
   for (const line of lines) {
     const husbMatch = line.match(/^1 HUSB (@I[^@]+@)/);
     if (husbMatch && !indiRefs.has(husbMatch[1])) {
@@ -321,7 +320,7 @@ export function validateGedcom(content: string): GedcomValidationResult {
 
 export function downloadGedcom(content: string, filename?: string): void {
   const date = new Date().toISOString().slice(0, 10);
-  const name = filename || `gia-pha-dang-dinh-${date}.ged`;
+  const name = filename || `ancestortree-${date}.ged`;
   const blob = new Blob([content], { type: 'text/x-gedcom;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

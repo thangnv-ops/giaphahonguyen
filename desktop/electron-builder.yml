@@ -1,0 +1,68 @@
+appId: com.ancestortree.desktop
+productName: AncestorTree
+copyright: Copyright © 2026 Minh-Tam-Solution
+
+# GitHub Releases for auto-update (electron-updater)
+publish:
+  provider: github
+  owner: Minh-Tam-Solution
+  repo: AncestorTree
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - build/**/*
+
+extraResources:
+  # standalone already contains .next/static and public (copied before build)
+  - from: ../frontend/.next/standalone
+    to: standalone
+    filter:
+      - "**/*"
+  - from: ../desktop/migrations
+    to: migrations
+    filter:
+      - "*.sql"
+
+# TODO Phase 3: Code signing — macOS Gatekeeper WILL block unsigned builds
+# Add: identity, hardenedRuntime, entitlements, notarize (requires Apple Developer $99/yr)
+mac:
+  category: public.app-category.utilities
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: build/icon.icns
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+  # Code Signing (SSL.com OV Certificate)
+  # Set environment variables before building:
+  #   CSC_LINK=path/to/ancestortree-codesign.pfx
+  #   CSC_KEY_PASSWORD=your-pfx-password
+  signtoolOptions:
+    signingHashAlgorithms:
+      - sha256
+    publisherName: Minh-Tam-Solution
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerLanguages:
+    - vi
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Utility
+  icon: build/icon.png

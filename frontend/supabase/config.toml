@@ -1,8 +1,8 @@
 # Supabase CLI Configuration for AncestorTree Local Development
 # Docs: https://supabase.com/docs/guides/cli/config
 
-[project]
-id = "ancestor-tree-local"
+# Project ID — used to distinguish Supabase projects on the same host
+project_id = "ancestor-tree-local"
 
 [api]
 enabled = true
@@ -27,13 +27,40 @@ additional_redirect_urls = ["http://localhost:4000"]
 [auth.email]
 enable_signup = true
 double_confirm_changes = false
-enable_confirmations = false
+enable_confirmations = true
+# Minimum cooldown between emails sent to the same address (prevents email spam)
+max_frequency = "1m"
+
+[auth.rate_limit]
+# Max OTP / magic-link verifications per 5 minutes
+token_verifications = 30
+# Max token refreshes per 5 minutes (covers MFA challenge/verify)
+token_refresh = 150
+# NOTE: sign_in_sign_ups and email_sent not supported in this GoTrue version
+# → sign-in rate limiting is handled by proxy.ts (page load) + client-side backoff
+
+# SMTP — send real verification emails via Gmail
+# Env vars defined in .env.local (see .env.local.example)
+[auth.email.smtp]
+host = "env(SMTP_HOST)"
+port = "env(SMTP_PORT)"
+user = "env(SMTP_USER)"
+pass = "env(SMTP_PASS)"
+admin_email = "env(SMTP_SENDER_EMAIL)"
+sender_name = "env(SMTP_SENDER_NAME)"
+
+[auth.mfa]
+max_enrolled_factors = 10
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
 
 [storage]
 enabled = true
-file_size_limit = "5MB"
+file_size_limit = "10MB"
 
 [storage.buckets.media]
 public = true
-file_size_limit = "5MB"
-allowed_mime_types = ["image/jpeg", "image/png", "image/webp", "image/gif"]
+file_size_limit = "10MB"
+allowed_mime_types = ["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "video/mp4", "video/webm"]

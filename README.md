@@ -37,12 +37,87 @@ Phần mềm quản lý gia phả điện tử giúp gìn giữ và truyền th�
 - **Chạy offline** - Supabase CLI + Docker, không cần tài khoản cloud
 - **Dữ liệu demo** - 18 thành viên 5 đời sẵn sàng sau `pnpm local:setup`
 - **Zero code change** - Cùng code base, chỉ khác env vars
+- **Supabase CLI v2.76+** - Tương thích cả format mới (box-drawing table) và cũ (plain text)
 
 ### Security (v1.7)
 - **Middleware bảo vệ toàn bộ** - Tất cả trang `(main)` yêu cầu đăng nhập, không chỉ `/admin`
 - **RLS cật nhật** - Số điện thoại, email, Zalo, địa chỉ chỉ hiển thị với thành viên đăng nhập
 - **Privacy mặc định an toàn** - Thành viên mới tạo mặc định chế độ `members only`
 - **profiles bảo vệ** - Danh sách tài khoản không có thể bị thu thập nếu chưa đăng nhập
+
+### Desktop App (v1.8)
+
+- **Cài và chạy** - Tải installer, click cài, dùng ngay — không cần Node.js, Docker, hay tài khoản cloud
+- **Hoạt động offline** - Dữ liệu lưu trên máy (SQLite), không cần internet
+- **Đầy đủ chức năng** - 100% tính năng giống bản web
+- **Cross-platform** - Hỗ trợ macOS và Windows
+- **Dữ liệu demo** - 18 thành viên 5 đời sẵn sàng khi cài đặt
+- **Tự động cập nhật** - Thông báo khi có phiên bản mới
+
+### Landing Page (v2.1)
+
+- **Trang giới thiệu** - Hero, tính năng, screenshots, download, cộng đồng
+- **SEO** - Canonical URL, robots.txt, Open Graph
+- **Download links** - Liên kết tải desktop app cho macOS/Windows
+
+### Kho tài liệu & Hướng dẫn (v2.2)
+
+- **Kho tài liệu** - Upload/lưu trữ ảnh lịch sử, gia phả giấy (PDF), bản đồ, video, bài viết
+- **Phân loại** - 6 danh mục: Ảnh lịch sử, Giấy tờ, Bản đồ, Video, Bài viết, Khác
+- **Tìm kiếm & lọc** - Gallery view với filter theo danh mục, tìm theo tiêu đề
+- **Gắn thẻ thành viên** - Liên kết tài liệu với thành viên trong gia phả
+- **Admin quản lý** - CRUD tài liệu, upload file, xác nhận xóa
+- **Hướng dẫn sử dụng** - Trang `/help` trong app: 5 phần (điều hướng, workflow, phân quyền, mẹo, FAQ)
+- **Desktop conditional** - Bản Desktop hiển thị thêm hướng dẫn sao lưu + bảng so sánh Desktop vs Web
+
+### Security & Settings (v2.2.1)
+
+- **Security hardening** - File size limit, MIME type validation, column whitelisting trên import ([@h4niz](https://github.com/H4niz))
+- **Tùy chỉnh tên dòng họ** - Cấu hình qua env vars `NEXT_PUBLIC_CLAN_NAME` / `NEXT_PUBLIC_CLAN_FULL_NAME`
+- **Trang Cài đặt** - `/admin/settings` hiển thị thông tin dòng họ, hệ thống, hướng dẫn thay đổi
+- **API docs** - Tài liệu API endpoints đầy đủ cho 14 bảng + Auth + Storage
+- **Secure coding review** - OWASP Top 10 + ASVS Level 1 audit
+
+### Privacy & Verification (v2.3)
+
+- **Xác nhận thành viên** - Admin duyệt tài khoản mới trước khi cho truy cập
+- **Sub-admin** - Editor được cấp quyền xác nhận thành viên trong nhánh phụ trách
+- **Hạn chế Viewer** - Viewer không thấy thông tin liên lạc, chỉ xem tên và cây gia phả
+- **Quyền riêng tư tài liệu** - 3 cấp: Công khai / Thành viên / Nội bộ (admin+editor)
+- **Email xác nhận** - Đăng ký cần verify email trước khi đăng nhập
+- **Trang chờ xác nhận** - `/pending-verification` cho tài khoản chưa được duyệt
+- **Middleware fail-closed** - Lỗi/timeout → chặn truy cập (không fail-open)
+- **Client-side guard** - VerificationGuard trong layout bảo vệ client-side navigation
+
+### Hồ sơ, MFA & Sao lưu (v2.4.1)
+
+- **Hồ sơ tài khoản** - `/settings/profile`: xem & sửa tên hiển thị, đổi mật khẩu, avatar
+- **Bảo mật MFA (TOTP)** - `/settings/security`: bật/tắt Google Authenticator, quét QR, nhập OTP 6 số
+- **Sao lưu & Phục hồi** - `/admin/backup`: xuất 13 bảng ra ZIP, nhập lại 1-click, tự động lịch sao lưu
+- **Quản lý tài khoản nâng cao** - Admin khoá/mở khoá, xoá tài khoản vĩnh viễn, duyệt xác nhận
+- **Bulk Admin Actions** - Checkbox chọn nhiều, xác nhận/khoá/xoá hàng loạt với Promise.allSettled
+- **Cài đặt dòng họ (động)** - Sửa tên, năm thành lập, nguồn gốc trực tiếp trong admin (không cần env vars)
+- **Rate limiting** - Giới hạn đăng nhập/đăng ký (20/phút login, 10/phút register, 6/5 phút forgot-password)
+- **Docker** - Dockerfile + docker-compose.yml, 1 lệnh `docker compose up` là chạy
+
+### Cộng đồng & Nâng cao (v2.5)
+
+- **Góc giao lưu** - Feed bài viết, bình luận, thả tim, upload ảnh (tối đa 5/bài), lọc theo loại, moderation
+- **Tìm quan hệ** - BFS pathfinding giữa 2 thành viên + Vietnamese relationship labels
+- **Thống kê nâng cao** - Dashboard biểu đồ (phân bố đời, giới tính, còn sống/mất) với Recharts
+- **Xuất PDF** - Export tree viewport ra PDF (html2canvas + jsPDF, beta)
+- **GEDCOM 7.0 Export** - Nâng cấp từ 5.5.1, hỗ trợ Vietnamese extensions (Quá Kế)
+- **GEDCOM Import** - Parse .ged 5.5.1/7.0 → tạo people + families tự động
+- **CSV Export** - Xuất danh sách thành viên ra Excel/CSV
+- **Phát hiện trùng lặp** - Thuật toán Levenshtein + Vietnamese NFD normalization
+- **Chế độ người cao tuổi** - Font size toggle + simplified list view
+- **Thông báo** - Bell icon + 6 loại thông báo + DB triggers (không insert trực tiếp)
+- **Trang Hội đồng** - `/council`: thông tin ban quản trị, lịch sử, sứ mệnh dòng họ (public)
+- **Trang Nhà thờ họ** - `/ancestral-hall`: gallery ảnh, lịch tế lễ, bản đồ OpenStreetMap (public)
+- **Đăng ký thành viên** - `/register-member`: form 12 trường + honeypot anti-spam + rate limit
+- **Admin duyệt đơn** - `/admin/registrations`: duyệt/từ chối/xoá đơn ghi danh
+- **Tìm kiếm thông minh** - Fuzzy search (Fuse.js) hỗ trợ dấu tiếng Việt
+- **SEO hoàn chỉnh** - Sitemap động, robots.txt, Open Graph cho 4 trang public
 
 ## Tech Stack
 
@@ -52,14 +127,43 @@ Phần mềm quản lý gia phả điện tử giúp gìn giữ và truyền th�
 | Styling | Tailwind CSS 4, shadcn/ui, Radix UI |
 | Database | Supabase (PostgreSQL, Auth, Storage, RLS) |
 | State | React Query (TanStack Query) |
+| Desktop | Electron 34, sql.js (WASM SQLite) |
 | Deployment | Vercel + Supabase Cloud |
 | Cost | **$0/tháng** (100% free tier) |
 
 ## Quick Start
 
-### Option A: Local Development (no cloud account needed)
+### One-line Install (khuyên dùng)
 
-> Requires Docker Desktop + Supabase CLI
+> Cần: Docker Desktop đang chạy + Node.js 18+. Script tự cài pnpm & Supabase CLI nếu thiếu.
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Minh-Tam-Solution/AncestorTree/main/install.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/Minh-Tam-Solution/AncestorTree/main/install.ps1 | iex
+```
+
+Xong → `cd AncestorTree/frontend && pnpm dev` → mở [http://localhost:4000](http://localhost:4000)
+
+Demo login: `admin@giapha.local` / `admin123`
+
+### Option A: Desktop App (dành cho người dùng phổ thông)
+
+> **Code Signing Pending** — Bản desktop đang chờ Apple Developer Certificate.
+> Khi có code sign, bản cài đặt sẽ được phát hành tại [GitHub Releases](https://github.com/Minh-Tam-Solution/AncestorTree/releases).
+> Hiện tại, vui lòng sử dụng One-line Install hoặc Option B/C.
+
+See [docs/04-build/INSTALLATION-GUIDE.md](./docs/04-build/INSTALLATION-GUIDE.md) for detailed instructions.
+
+### Option B: Local Development (manual)
+
+> Requires Docker Desktop + Node.js 18+ + pnpm + Supabase CLI
 
 ```bash
 git clone https://github.com/Minh-Tam-Solution/AncestorTree.git
@@ -75,7 +179,19 @@ Demo login: `admin@giapha.local` / `admin123`
 
 See [docs/04-build/LOCAL-DEVELOPMENT.md](./docs/04-build/LOCAL-DEVELOPMENT.md) for full guide.
 
-### Option B: Supabase Cloud
+### Option C: Docker (1 lệnh, không cần Node.js)
+
+```bash
+git clone https://github.com/Minh-Tam-Solution/AncestorTree.git
+cd AncestorTree
+cp frontend/.env.local.example frontend/.env.local
+# Fill in Supabase credentials
+docker compose up -d
+```
+
+Open [http://localhost:4000](http://localhost:4000)
+
+### Option D: Supabase Cloud
 
 ```bash
 git clone https://github.com/Minh-Tam-Solution/AncestorTree.git
@@ -111,7 +227,14 @@ AncestorTree/
 │   │   │       ├── directory/      # Thư mục thành viên
 │   │   │       ├── events/         # Lịch sự kiện
 │   │   │       ├── fund/           # Quỹ khuyến học
+│   │   │       ├── documents/       # Kho tài liệu (v2.2)
+│   │   │       ├── feed/           # Góc giao lưu (v2.5)
+│   │   │       ├── help/           # Hướng dẫn sử dụng (v2.2)
+│   │   │       ├── notifications/ # Thông báo (v2.5)
 │   │   │       ├── people/         # Quản lý thành viên
+│   │   │       ├── relationship/  # Tìm quan hệ (v2.5)
+│   │   │       ├── settings/       # Hồ sơ + Bảo mật MFA (v2.4.1)
+│   │   │       ├── stats/         # Thống kê (v2.5)
 │   │   │       ├── tree/           # Cây gia phả
 │   │   │       └── admin/          # Admin panel
 │   │   ├── components/             # React components
@@ -129,7 +252,25 @@ AncestorTree/
 │           ├── 20260224000002_cau_duong_migration.sql
 │           ├── 20260224000003_sprint75_migration.sql
 │           ├── 20260224000004_storage_setup.sql
-│           └── 20260226000005_security_hardening.sql
+│           ├── 20260226000005_security_hardening.sql
+│           ├── 20260227000006_sprint11_kho_tai_lieu.sql
+│           ├── 20260227000007_storage_update_mime_types.sql
+│           ├── 20260228000008_sprint12_privacy_verification.sql
+│           ├── 20260228000009_user_management.sql
+│           ├── 20260301000010_clan_settings.sql
+│           ├── 20260310000011_sprint13_search_stats.sql
+│           ├── 20260310000012_sprint14_gedcom_duplicate_elderly.sql
+│           ├── 20260312000013_sprint15_feed.sql
+│           ├── 20260315000016_sprint16_notifications.sql
+│           ├── 20260317000017_sprint17_export_import.sql
+│           └── 20260320000018_sprint18_registrations.sql
+├── desktop/                        # Electron desktop app (Sprint 9)
+│   ├── electron/                   # Main process (main.ts, server.ts, preload.ts)
+│   ├── build/                      # App icons (icns, ico, png)
+│   ├── migrations/                 # SQLite versioned migrations + seed data
+│   ├── electron-builder.yml        # Cross-platform build config
+│   └── package.json                # Electron + sql.js deps
+├── docker-compose.yml              # Docker deployment (v2.5)
 ├── .sdlc-config.json               # SDLC configuration
 ├── CLAUDE.md                       # AI assistant guidelines
 └── README.md
@@ -137,7 +278,7 @@ AncestorTree/
 
 ## Database
 
-13 tables across 4 layers:
+22 tables across 9 layers:
 
 | Layer | Tables | Description |
 |-------|--------|-------------|
@@ -145,6 +286,11 @@ AncestorTree/
 | Platform | `profiles`, `contributions`, `media`, `events` | Tài khoản, đóng góp, sự kiện |
 | Culture (v1.3) | `achievements`, `fund_transactions`, `scholarships`, `clan_articles` | Vinh danh, quỹ, hương ước |
 | Ceremony (v1.4) | `cau_duong_pools`, `cau_duong_assignments` | Phân công cầu đương lễ, tết |
+| Documents (v2.2) | `clan_documents` | Kho tài liệu dòng họ |
+| Settings (v2.3) | `clan_settings` | Cấu hình dòng họ + council + ceremonies |
+| Feed (v2.5) | `posts`, `post_likes`, `post_comments` | Góc giao lưu dòng họ |
+| Notifications (v2.5) | `notifications` | Thông báo realtime (trigger-only insert) |
+| Registration (v2.5) | `member_registrations` | Đơn ghi danh thành viên |
 
 All tables have Row Level Security (RLS) policies with 4 roles.
 
@@ -156,8 +302,8 @@ Full SDLC documentation (9 docs, 141KB):
 |-------|-----------|
 | 00-Foundation | Vision, Problem Statement, Market Research, Business Case |
 | 01-Planning | BRD (77 FRs + 17 NFRs), Roadmap |
-| 02-Design | Technical Design (13 tables), UI/UX Design |
-| 04-Build | Sprint Plan (8 sprints, v1.7.0) |
+| 02-Design | Technical Design (14 tables), UI/UX Design |
+| 04-Build | Sprint Plan, Installation Guide, User Guide |
 
 See [docs/README.md](./docs/README.md) for full documentation index.
 
@@ -173,12 +319,39 @@ v1.4.0 Ceremony [##########] Done - Cầu đương rotation + DFS algorithm
 v1.5.0 Relations[##########] Done - Family relations UX + tree filter by root
 v1.6.0 LocalDev  [##########] Done - Supabase CLI + Docker local mode
 v1.7.0 Security  [##########] Done - RLS hardening + middleware fix + privacy defaults
-v2.0.0 Community [----------] Future - Nhà thờ họ, Notifications, Cross-clan
+v1.8.0 Desktop   [##########] Done - Electron + sql.js standalone desktop app
+v2.1.0 Landing   [##########] Done - Landing page + community docs + SEO
+v2.2.0 Documents [##########] Done - Kho tài liệu + In-App Help guide
+v2.2.1 Security  [##########] Done - Security patch + Clan name config + Settings page
+v2.3.0 Privacy   [##########] Done - Xác nhận thành viên + Sub-admin + Privacy controls
+v2.4.0 Profile   [##########] Done - Hồ sơ + MFA + Sao lưu + Docker + Rate limiting
+v2.4.1 BulkAdmin [##########] Done - Bulk actions + Supabase CLI v2.76+ fix
+v2.5.0 Community [##########] Done - Góc giao lưu + Thống kê + GEDCOM 7.0 + Thông báo + Nhà thờ họ + SEO
 ```
 
 ## For Your Own Clan
 
-AncestorTree is designed to be **forked and customized**. Any Vietnamese family can:
+AncestorTree is designed for **any Vietnamese family**:
+
+### Cách nhanh nhất (1 lệnh)
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Minh-Tam-Solution/AncestorTree/main/install.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+irm https://raw.githubusercontent.com/Minh-Tam-Solution/AncestorTree/main/install.ps1 | iex
+```
+
+Login: `admin@giapha.local` / `admin123` — Tổng thời gian: **10 phút**. Chi phí: **$0**.
+
+> Desktop App (offline, không cần Docker) sẽ có khi code signing certificate sẵn sàng.
+
+### Cách nâng cao (Web App — Deploy cho cả dòng họ)
 
 1. Fork this repo
 2. Create a free Supabase project
@@ -191,6 +364,10 @@ Total setup time: ~30 minutes. Total cost: $0/month.
 ## Built With
 
 This project was built using [TinySDLC](https://github.com/Minh-Tam-Solution/tinysdlc) agent orchestrator following [MTS-SDLC-Lite](https://github.com/Minh-Tam-Solution/MTS-SDLC-Lite) methodology.
+
+## Contributors
+
+- [@h4niz](https://github.com/H4niz) — Security review & hardening (OWASP Top 10, API docs, secure coding standards)
 
 ## Contributing
 
